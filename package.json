@@ -1,6 +1,6 @@
 {
   "name": "fortknox",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Gestionale commesse: incarichi, fatture attive e passive, margini e analisi",
   "main": "server.js",
   "scripts": {
@@ -10,10 +10,12 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "adm-zip": "^0.5.12",
     "bcryptjs": "^2.4.3",
     "connect-pg-simple": "^9.0.1",
     "express": "^4.19.2",
-    "express-session": "^1.18.0",
+    "fast-xml-parser": "^4.4.0",
+    "multer": "^1.4.5-lts.1",
     "pg": "^8.11.5"
   }
 }
