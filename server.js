@@ -3,8 +3,15 @@ const express = require('express');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
 
 const db = require('./db');
+const xml = require('./xmlParser');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 }
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -924,6 +931,325 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
     da_incassare: r2(Number(d.da_incassare)),
     aliquota_tasse: al.aliquota_tasse
   });
+}));
+
+// ============================================================
+// IMPORT FATTURE ELETTRONICHE
+// ============================================================
+
+// Chiave stabile per riconoscere lo stesso soggetto tra anteprima e conferma.
+function chiaveSoggetto(s) {
+  return (s.piva || s.codice_fiscale || s.denominazione || '').toLowerCase().trim();
+}
+
+app.post('/api/import/anteprima', upload.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Nessun file caricato' });
+  const direzione = req.body.direzione === 'passiva' ? 'passiva' : 'attiva';
+
+  const { documenti, errori } = xml.leggiArchivio(
+    req.file.buffer, req.file.originalname, direzione
+  );
+  if (!documenti.length) {
+    return res.status(400).json({ error: 'Nessuna fattura valida trovata nel file', errori });
+  }
+
+  // --- soggetti ---
+  const soggetti = new Map();
+  documenti.forEach((d) => {
+    const c = d.controparte;
+    if (!c || !c.denominazione) return;
+    const k = chiaveSoggetto(c);
+    if (!soggetti.has(k)) {
+      soggetti.set(k, Object.assign({ chiave: k, con_ritenuta: false, senza_ritenuta: false }, c));
+    }
+    const s = soggetti.get(k);
+    if (direzione === 'attiva') {
+      if (d.ritenuta_importo > 0) s.con_ritenuta = true; else s.senza_ritenuta = true;
+    }
+  });
+
+  const esistenti = await db.query('SELECT id, denominazione, piva, codice_fiscale FROM soggetti');
+  const indice = new Map();
+  esistenti.rows.forEach((s) => {
+    [s.piva, s.codice_fiscale, s.denominazione].forEach((v) => {
+      if (v) indice.set(String(v).toLowerCase().trim(), s.id);
+    });
+  });
+
+  const listaSoggetti = [...soggetti.values()].map((s) => ({
+    chiave: s.chiave,
+    denominazione: s.denominazione,
+    piva: s.piva,
+    codice_fiscale: s.codice_fiscale,
+    paese: s.paese,
+    tipo: s.tipo,
+    regime_fiscale: s.regime_fiscale,
+    indirizzo: s.indirizzo,
+    civico: s.civico,
+    cap: s.cap,
+    comune: s.comune,
+    provincia: s.provincia,
+    is_cliente: direzione === 'attiva',
+    is_fornitore: direzione === 'passiva',
+    // Se emette fatture senza ritenuta, il cliente non e' sostituto d'imposta.
+    sostituto_imposta: direzione === 'attiva' ? !(s.senza_ritenuta && !s.con_ritenuta) : true,
+    esistente_id: indice.get(s.chiave)
+      || (s.piva && indice.get(String(s.piva).toLowerCase()))
+      || (s.codice_fiscale && indice.get(String(s.codice_fiscale).toLowerCase()))
+      || null
+  }));
+
+  // --- duplicati gia' presenti ---
+  const hashes = documenti.map((d) => d.xml_hash);
+  const gia = await db.query(
+    'SELECT xml_hash, numero, data, soggetto_id FROM documenti WHERE xml_hash = ANY($1)',
+    [hashes]
+  );
+  const setHash = new Set(gia.rows.map((r) => r.xml_hash));
+
+  const coppie = await db.query(
+    `SELECT d.numero, to_char(d.data, 'YYYY-MM-DD') AS data, s.piva, s.codice_fiscale
+     FROM documenti d JOIN soggetti s ON s.id = d.soggetto_id WHERE d.direzione = $1`,
+    [direzione]
+  );
+  const setCoppie = new Set(coppie.rows.map((r) =>
+    [r.numero, r.data, (r.piva || r.codice_fiscale || '').toLowerCase()].join('|')
+  ));
+
+  // --- raggruppamento in commesse ---
+  const gruppi = new Map();
+  documenti.forEach((d) => {
+    const ks = chiaveSoggetto(d.controparte || {});
+    const kd = xml.chiaveDescrizione(d.descrizione) || 'senza-descrizione';
+    const k = ks + '::' + kd;
+    if (!gruppi.has(k)) {
+      gruppi.set(k, {
+        chiave: k,
+        soggetto_chiave: ks,
+        soggetto_nome: d.controparte ? d.controparte.denominazione : '',
+        titolo: xml.titoloProposto(d.descrizione),
+        n_documenti: 0,
+        totale: 0,
+        incarico_esistente_id: null
+      });
+    }
+    const g = gruppi.get(k);
+    g.n_documenti += 1;
+    g.totale = r2(g.totale + d.imponibile * (d.tipo_documento === 'TD04' ? -1 : 1));
+  });
+
+  // Se esiste gia' una commessa dello stesso cliente con titolo simile, la si propone.
+  const incEsistenti = await db.query(
+    `SELECT i.id, i.titolo, s.piva, s.codice_fiscale, s.denominazione
+     FROM incarichi i JOIN soggetti s ON s.id = i.soggetto_id`
+  );
+  gruppi.forEach((g) => {
+    const kd = g.chiave.split('::')[1];
+    const trovato = incEsistenti.rows.find((i) => {
+      const ks = (i.piva || i.codice_fiscale || i.denominazione || '').toLowerCase().trim();
+      return ks === g.soggetto_chiave && xml.chiaveDescrizione(i.titolo) === kd;
+    });
+    if (trovato) g.incarico_esistente_id = trovato.id;
+  });
+
+  const listaDoc = documenti.map((d) => {
+    const ks = chiaveSoggetto(d.controparte || {});
+    const kd = xml.chiaveDescrizione(d.descrizione) || 'senza-descrizione';
+    const coppia = [d.numero, d.data, (d.controparte && (d.controparte.piva || d.controparte.codice_fiscale) || '').toLowerCase()].join('|');
+    const dup = setHash.has(d.xml_hash) || setCoppie.has(coppia);
+    return {
+      xml_hash: d.xml_hash,
+      xml_nome_file: d.xml_nome_file,
+      direzione: d.direzione,
+      soggetto_chiave: ks,
+      gruppo_chiave: ks + '::' + kd,
+      tipo_documento: d.tipo_documento,
+      numero: d.numero,
+      data: d.data,
+      totale_documento: d.totale_documento,
+      imponibile: d.imponibile,
+      imposta: d.imposta,
+      prestazione: d.prestazione,
+      cassa_importo: d.cassa_importo,
+      cassa_aliquota: d.cassa_aliquota,
+      ritenuta_importo: d.ritenuta_importo,
+      ritenuta_aliquota: d.ritenuta_aliquota,
+      reverse_charge: d.reverse_charge,
+      fornitore_forfettario: d.fornitore_forfettario,
+      data_scadenza: d.data_scadenza,
+      cig: d.cig,
+      codice_commessa: d.codice_commessa,
+      descrizione: d.descrizione,
+      riepiloghi: d.riepiloghi,
+      duplicato: dup
+    };
+  });
+
+  res.json({
+    direzione,
+    nome_file: req.file.originalname,
+    errori,
+    totali: {
+      documenti: listaDoc.length,
+      duplicati: listaDoc.filter((d) => d.duplicato).length,
+      soggetti_nuovi: listaSoggetti.filter((s) => !s.esistente_id).length,
+      gruppi: gruppi.size
+    },
+    soggetti: listaSoggetti,
+    gruppi: [...gruppi.values()].sort((a, b) => b.n_documenti - a.n_documenti),
+    documenti: listaDoc
+  });
+}));
+
+app.post('/api/import/conferma', wrap(async (req, res) => {
+  const b = req.body;
+  const direzione = b.direzione === 'passiva' ? 'passiva' : 'attiva';
+  const soggetti = Array.isArray(b.soggetti) ? b.soggetti : [];
+  const gruppi = Array.isArray(b.gruppi) ? b.gruppi : [];
+  const documenti = Array.isArray(b.documenti) ? b.documenti : [];
+
+  const client = await db.pool.connect();
+  const esito = { soggetti_creati: 0, incarichi_creati: 0, creati: 0, saltati: 0, errori: [] };
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. soggetti
+    const mappaSog = new Map();
+    for (const s of soggetti) {
+      if (s.esistente_id) { mappaSog.set(s.chiave, s.esistente_id); continue; }
+      const { rows } = await client.query(
+        `INSERT INTO soggetti (denominazione, piva, paese, codice_fiscale, tipo,
+           regime_fiscale, is_cliente, is_fornitore, sostituto_imposta,
+           indirizzo, civico, cap, comune, provincia)
+         VALUES ($1,$2,COALESCE($3,'IT'),$4,COALESCE($5,'privato'),$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         RETURNING id`,
+        [s.denominazione, s.piva || null, s.paese, s.codice_fiscale || null, s.tipo,
+          s.regime_fiscale || null, !!s.is_cliente, !!s.is_fornitore,
+          s.sostituto_imposta !== false,
+          s.indirizzo || null, s.civico || null, s.cap || null, s.comune || null, s.provincia || null]
+      );
+      mappaSog.set(s.chiave, rows[0].id);
+      esito.soggetti_creati += 1;
+    }
+
+    // 2. commesse
+    const mappaGrp = new Map();
+    for (const g of gruppi) {
+      if (g.azione === 'nessuna') { mappaGrp.set(g.chiave, null); continue; }
+      if (g.azione === 'esistente' && g.incarico_id) {
+        mappaGrp.set(g.chiave, Number(g.incarico_id));
+        continue;
+      }
+      const sogId = mappaSog.get(g.soggetto_chiave);
+      if (!sogId) { mappaGrp.set(g.chiave, null); continue; }
+      const { rows } = await client.query(
+        `INSERT INTO incarichi (soggetto_id, titolo, stato) VALUES ($1, $2, 'in_corso') RETURNING id`,
+        [sogId, String(g.titolo || 'Commessa importata').slice(0, 200)]
+      );
+      const incId = rows[0].id;
+      mappaGrp.set(g.chiave, incId);
+      esito.incarichi_creati += 1;
+
+      for (const tid of (Array.isArray(g.tipologie) ? g.tipologie : [])) {
+        await client.query(
+          'INSERT INTO incarico_tipologie (incarico_id, tipologia_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [incId, tid]
+        );
+      }
+    }
+
+    // 3. tag per gruppo, riusati su tutti i documenti del gruppo
+    const tagGruppo = new Map();
+    for (const g of gruppi) {
+      const ids = [];
+      for (const raw of (Array.isArray(g.tags) ? g.tags : [])) {
+        const nome = normalizzaTag(raw);
+        if (!nome) continue;
+        const { rows } = await client.query(
+          `INSERT INTO tags (nome) VALUES ($1)
+           ON CONFLICT (nome) DO UPDATE SET nome = EXCLUDED.nome RETURNING id`, [nome]
+        );
+        ids.push(rows[0].id);
+      }
+      tagGruppo.set(g.chiave, ids);
+    }
+
+    // 4. documenti
+    for (const d of documenti) {
+      if (d.duplicato && !b.forza_duplicati) { esito.saltati += 1; continue; }
+      const sogId = mappaSog.get(d.soggetto_chiave);
+      if (!sogId) {
+        esito.saltati += 1;
+        esito.errori.push({ numero: d.numero, errore: 'controparte non risolta' });
+        continue;
+      }
+      const incId = mappaGrp.has(d.gruppo_chiave) ? mappaGrp.get(d.gruppo_chiave) : null;
+
+      let docId;
+      try {
+        const { rows } = await client.query(`
+          INSERT INTO documenti (
+            direzione, soggetto_id, incarico_id, tipo_documento, numero, data,
+            totale_documento, imponibile, imposta, prestazione,
+            cassa_importo, cassa_aliquota, ritenuta_importo, ritenuta_aliquota,
+            reverse_charge, fornitore_forfettario, data_scadenza,
+            cig, codice_commessa, descrizione, origine, xml_hash, xml_nome_file
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'import',$21,$22)
+          RETURNING id`,
+        [direzione, sogId, incId, d.tipo_documento, String(d.numero), d.data,
+          num(d.totale_documento), num(d.imponibile), num(d.imposta),
+          d.prestazione === null || d.prestazione === undefined ? null : num(d.prestazione),
+          num(d.cassa_importo), num(d.cassa_aliquota),
+          num(d.ritenuta_importo), num(d.ritenuta_aliquota),
+          !!d.reverse_charge, !!d.fornitore_forfettario, d.data_scadenza || null,
+          d.cig || null, d.codice_commessa || null, d.descrizione || null,
+          d.xml_hash, d.xml_nome_file || null]);
+        docId = rows[0].id;
+      } catch (err) {
+        // vincolo di unicita': il documento c'era gia'
+        esito.saltati += 1;
+        continue;
+      }
+
+      for (const r of (Array.isArray(d.riepiloghi) ? d.riepiloghi : [])) {
+        await client.query(
+          `INSERT INTO documento_riepiloghi (documento_id, aliquota, imponibile, imposta, natura, esigibilita)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [docId, num(r.aliquota), num(r.imponibile), num(r.imposta), r.natura || null, r.esigibilita || null]
+        );
+      }
+      for (const tid of (tagGruppo.get(d.gruppo_chiave) || [])) {
+        await client.query(
+          'INSERT INTO documento_tags (documento_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [docId, tid]
+        );
+      }
+      esito.creati += 1;
+    }
+
+    await client.query(
+      `INSERT INTO import_log (nome_file, direzione, totale_file, creati, aggiornati, saltati, errori)
+       VALUES ($1,$2,$3,$4,0,$5,$6)`,
+      [b.nome_file || 'import', direzione, documenti.length,
+        esito.creati, esito.saltati, JSON.stringify(esito.errori)]
+    );
+
+    await client.query('COMMIT');
+    res.json(esito);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}));
+
+app.get('/api/import/storico', wrap(async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT * FROM import_log ORDER BY created_at DESC LIMIT 20'
+  );
+  res.json(rows);
 }));
 
 // ============================================================
