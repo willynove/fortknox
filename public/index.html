@@ -278,10 +278,13 @@ const dt = (d)=> d ? new Date(d).toLocaleDateString('it-IT',{day:'2-digit',month
 const oggi = ()=> new Date().toISOString().slice(0,10);
 
 async function api(path, opts){
+  opts = opts || {};
+  const headers = {};
+  // con FormData l'intestazione la imposta il browser, con il boundary corretto
+  if(!(opts.body instanceof FormData)) headers['Content-Type'] = 'application/json';
   const r = await fetch('/api'+path, Object.assign({
-    headers:{'Content-Type':'application/json'},
-    credentials:'same-origin'
-  }, opts||{}));
+    headers, credentials:'same-origin'
+  }, opts));
   const testo = await r.text();
   let dati = null;
   try { dati = testo ? JSON.parse(testo) : null; } catch(e){ dati = {error:testo}; }
@@ -347,6 +350,7 @@ const VOCI = [
   {id:'riepilogo', t:'Riepilogo', i:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>'},
   {id:'commesse',  t:'Commesse',  i:'<path d="M3 7h18v13H3zM8 7V4h8v3"/>'},
   {id:'documenti', t:'Documenti', i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
+  {id:'importa',   t:'Importa',   i:'<path d="M12 3v12M8 11l4 4 4-4M4 20h16"/>'},
   {id:'anagrafica',t:'Anagrafica',i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'},
   {id:'impostazioni',t:'Impostazioni',i:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'}
 ];
@@ -370,6 +374,7 @@ async function render(){
     if(S.vista==='riepilogo') await vistaRiepilogo(m);
     else if(S.vista==='commesse') await vistaCommesse(m);
     else if(S.vista==='documenti') await vistaDocumenti(m);
+    else if(S.vista==='importa') await vistaImporta(m);
     else if(S.vista==='anagrafica') await vistaAnagrafica(m);
     else if(S.vista==='impostazioni') await vistaImpostazioni(m);
   }catch(e){
@@ -1138,6 +1143,184 @@ async function vistaImpostazioni(m){
       })});
       $('#pOld').value=''; $('#pNew').value=''; toast('Password cambiata');
     }catch(e){ toast(e.message, true); }
+  };
+}
+
+// ============================================================
+// VISTA: IMPORTA
+// ============================================================
+let PROPOSTA = null;
+
+async function vistaImporta(m){
+  const storico = await api('/import/storico');
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Importa fatture</h1>
+        <div class="sub">File XML della fatturazione elettronica, singoli o in archivio zip</div></div>
+    </div>
+
+    <div class="box">
+      <div class="seg" style="margin-bottom:16px">
+        <button id="impAtt" class="on">Fatture emesse</button>
+        <button id="impPas">Fatture ricevute</button>
+      </div>
+      <input type="hidden" id="impDir" value="attiva">
+      <div class="field">
+        <label>File .xml o .zip</label>
+        <input type="file" id="impFile" accept=".xml,.zip">
+      </div>
+      <button class="btn btn-accent" id="impLeggi">Leggi il file</button>
+      <div class="sub" style="margin-top:10px">
+        Niente viene salvato finché non confermi. Dai dati in fattura ricava clienti,
+        fornitori e commesse.
+      </div>
+    </div>
+
+    <div id="impEsito"></div>
+
+    ${storico.length ? `
+      <h2>Import precedenti</h2>
+      <div class="panel"><table>
+        <thead><tr><th>File</th><th>Tipo</th><th class="num">Importati</th><th class="num">Saltati</th><th>Quando</th></tr></thead>
+        <tbody>${storico.map(s=>`
+          <tr><td>${esc(s.nome_file)}</td>
+            <td class="dim">${s.direzione==='attiva'?'emesse':'ricevute'}</td>
+            <td class="num mono strong">${s.creati}</td>
+            <td class="num mono dim">${s.saltati}</td>
+            <td class="dim mono">${dt(s.created_at)}</td></tr>`).join('')}
+        </tbody></table></div>` : ''}
+  `;
+
+  $('#impAtt').onclick = ()=>{ $('#impDir').value='attiva'; $('#impAtt').classList.add('on'); $('#impPas').classList.remove('on'); };
+  $('#impPas').onclick = ()=>{ $('#impDir').value='passiva'; $('#impPas').classList.add('on'); $('#impAtt').classList.remove('on'); };
+
+  $('#impLeggi').onclick = async ()=>{
+    const f = $('#impFile').files[0];
+    if(!f) return toast('Scegli un file', true);
+    const btn = $('#impLeggi');
+    btn.disabled = true; btn.textContent = 'Lettura in corso…';
+    try{
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('direzione', $('#impDir').value);
+      PROPOSTA = await api('/import/anteprima',{method:'POST', body:fd});
+      disegnaProposta();
+    }catch(e){ toast(e.message, true); }
+    btn.disabled = false; btn.textContent = 'Leggi il file';
+  };
+}
+
+function disegnaProposta(){
+  const p = PROPOSTA;
+  const t = p.totali;
+  const daImportare = p.documenti.filter(d=>!d.duplicato).length;
+
+  $('#impEsito').innerHTML = `
+    <h2>Anteprima</h2>
+    <div class="kpi-grid" style="margin-bottom:16px">
+      <div class="kpi lead"><div class="k">Da importare</div><div class="v">${daImportare}</div>
+        <div class="n">${t.duplicati} già presenti, saltati</div></div>
+      <div class="kpi"><div class="k">Soggetti nuovi</div><div class="v">${t.soggetti_nuovi}</div>
+        <div class="n">su ${p.soggetti.length} trovati</div></div>
+      <div class="kpi"><div class="k">Commesse proposte</div><div class="v">${t.gruppi}</div>
+        <div class="n">raggruppate per descrizione</div></div>
+    </div>
+
+    ${p.errori && p.errori.length ? `<div class="err-msg">${p.errori.length} file non letti: ${esc(p.errori.map(e=>e.file).join(', ').slice(0,200))}</div>` : ''}
+
+    <h2>Soggetti</h2>
+    <div class="panel"><table>
+      <thead><tr><th>Denominazione</th><th>P.IVA</th><th>Tipo</th><th>Ritenuta</th><th>Stato</th></tr></thead>
+      <tbody>${p.soggetti.map(s=>`
+        <tr><td class="strong">${esc(s.denominazione)}</td>
+          <td class="dim mono">${esc(s.piva||s.codice_fiscale||'—')}</td>
+          <td class="dim">${s.tipo==='pa'?'PA':'privato'}</td>
+          <td>${p.direzione==='attiva'
+            ? (s.sostituto_imposta?'<span class="dim">sì</span>':'<span class="pill warn">no</span>')
+            : '<span class="dim">—</span>'}</td>
+          <td>${s.esistente_id?'<span class="dim">già in anagrafica</span>':'<span class="pill good">da creare</span>'}</td>
+        </tr>`).join('')}
+      </tbody></table></div>
+
+    <h2>Commesse</h2>
+    <div class="sub" style="margin-bottom:10px">
+      Titolo e destinazione sono modificabili. I tag valgono per tutti i documenti del gruppo.
+    </div>
+    <div class="panel" style="padding:4px 0">
+      ${p.gruppi.map((g,i)=>`
+        <div style="padding:14px 16px;border-bottom:1px solid var(--line-soft)">
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+            <input type="text" class="gTit" data-i="${i}" value="${esc(g.titolo)}" style="flex:1;min-width:200px">
+            <span class="pill">${g.n_documenti} doc · ${eur0(g.totale)}</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <select class="gAz" data-i="${i}" style="width:auto">
+              <option value="nuova">Crea commessa nuova</option>
+              <option value="esistente" ${g.incarico_esistente_id?'selected':''}>Collega a esistente</option>
+              <option value="nessuna">Non collegare</option>
+            </select>
+            <select class="gInc" data-i="${i}" style="width:auto;${g.incarico_esistente_id?'':'display:none'}">
+              ${S.incarichi.map(x=>`<option value="${x.id}" ${g.incarico_esistente_id==x.id?'selected':''}>${esc(x.titolo)}</option>`).join('')}
+            </select>
+            <input type="text" class="gTag" data-i="${i}" placeholder="tag, separati da virgola" style="width:auto;min-width:180px">
+          </div>
+          <div class="sub" style="margin-top:6px">${esc(g.soggetto_nome)}</div>
+        </div>`).join('')}
+    </div>
+
+    <h2>Documenti</h2>
+    <div class="panel" style="max-height:340px;overflow-y:auto"><table>
+      <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th class="num">Imponibile</th><th></th></tr></thead>
+      <tbody>${p.documenti.map(d=>`
+        <tr><td class="dim mono">${dt(d.data)}</td>
+          <td>${esc(d.numero)}
+            ${d.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}
+            ${d.reverse_charge?'<span class="pill">RC</span>':''}
+            ${d.fornitore_forfettario?'<span class="pill">forfettario</span>':''}</td>
+          <td class="dim">${esc((p.soggetti.find(s=>s.chiave===d.soggetto_chiave)||{}).denominazione||'—')}</td>
+          <td class="num mono">${eur0(d.imponibile)}</td>
+          <td>${d.duplicato?'<span class="pill warn">già presente</span>':''}</td>
+        </tr>`).join('')}
+      </tbody></table></div>
+
+    <div style="margin-top:18px;display:flex;gap:8px;align-items:center">
+      <button class="btn btn-accent" id="impConferma">Importa ${daImportare} documenti</button>
+      <button class="btn btn-ghost" id="impAnnulla">Annulla</button>
+    </div>
+  `;
+
+  document.querySelectorAll('.gAz').forEach(s=> s.onchange = ()=>{
+    const sel = document.querySelector('.gInc[data-i="'+s.dataset.i+'"]');
+    sel.style.display = s.value==='esistente' ? '' : 'none';
+  });
+
+  $('#impAnnulla').onclick = ()=>{ PROPOSTA = null; $('#impEsito').innerHTML=''; };
+
+  $('#impConferma').onclick = async ()=>{
+    const btn = $('#impConferma');
+    btn.disabled = true; btn.textContent = 'Importazione in corso…';
+    p.gruppi.forEach((g,i)=>{
+      g.azione = document.querySelector('.gAz[data-i="'+i+'"]').value;
+      g.titolo = document.querySelector('.gTit[data-i="'+i+'"]').value.trim();
+      const sel = document.querySelector('.gInc[data-i="'+i+'"]');
+      g.incarico_id = sel ? sel.value : null;
+      g.tags = document.querySelector('.gTag[data-i="'+i+'"]').value
+        .split(',').map(x=>x.trim()).filter(Boolean);
+    });
+    try{
+      const r = await api('/import/conferma',{method:'POST',body:JSON.stringify({
+        direzione:p.direzione, nome_file:p.nome_file,
+        soggetti:p.soggetti, gruppi:p.gruppi,
+        documenti:p.documenti.filter(d=>!d.duplicato)
+      })});
+      PROPOSTA = null;
+      toast(`Importati ${r.creati} documenti, ${r.soggetti_creati} soggetti, ${r.incarichi_creati} commesse`);
+      await caricaBase();
+      vai('riepilogo');
+    }catch(e){
+      toast(e.message, true);
+      btn.disabled = false; btn.textContent = 'Riprova';
+    }
   };
 }
 
