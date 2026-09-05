@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fort Knox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1B2430;
+  --ink-soft:#4A5764;
+  --muted:#7A8792;
+  --line:#E1E7EB;
+  --line-soft:#EEF2F4;
+  --bg:#F5F7F8;
+  --surface:#FFFFFF;
+  --accent:#A7F175;
+  --accent-deep:#3F6B15;
+  --accent-wash:#EDFBE1;
+  --danger:#B4362F;
+  --danger-wash:#FBEDEC;
+  --r:10px;
+  --r-sm:6px;
+  --sidebar:224px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;font-size:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:14px}
+a{color:var(--accent-deep)}
+.hidden{display:none !important}
+
+/* ---------- LOGIN ---------- */
+#login{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+}
+.login-card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:36px 32px;width:100%;max-width:360px;
+}
+.login-mark{
+  width:34px;height:34px;border-radius:8px;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;margin-bottom:20px;
+}
+.login-mark svg{width:18px;height:18px;stroke:var(--ink)}
+.login-card h1{font-size:20px;font-weight:700;margin:0 0 4px}
+.login-card p{color:var(--muted);margin:0 0 24px;font-size:13px}
+
+/* ---------- FORM ---------- */
+label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:5px}
+.field{margin-bottom:14px}
+input[type=text],input[type=email],input[type=password],input[type=number],
+input[type=date],select,textarea{
+  width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r-sm);
+  background:var(--surface);color:var(--ink);outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--ink);box-shadow:0 0 0 3px var(--accent-wash)}
+textarea{resize:vertical;min-height:64px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.check{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px}
+.check input{width:16px;height:16px;accent-color:var(--accent-deep)}
+.check label{margin:0;font-size:13px;font-weight:500;color:var(--ink)}
+
+.btn{
+  padding:9px 16px;border-radius:var(--r-sm);border:1px solid var(--ink);
+  background:var(--ink);color:#fff;font-weight:600;
+}
+.btn:hover{background:#2C3947}
+.btn-accent{background:var(--accent);border-color:var(--accent);color:var(--ink)}
+.btn-accent:hover{background:#9AE863}
+.btn-ghost{background:transparent;border-color:var(--line);color:var(--ink-soft);font-weight:500}
+.btn-ghost:hover{border-color:var(--ink-soft);color:var(--ink)}
+.btn-danger{background:transparent;border-color:var(--line);color:var(--danger);font-weight:500}
+.btn-danger:hover{background:var(--danger-wash);border-color:var(--danger)}
+.btn-sm{padding:5px 10px;font-size:12.5px}
+.btn-block{width:100%;display:block}
+
+/* ---------- SHELL ---------- */
+#app{display:flex;min-height:100vh}
+aside{
+  width:var(--sidebar);flex-shrink:0;background:var(--surface);
+  border-right:1px solid var(--line);padding:20px 14px;
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+}
+.brand{display:flex;align-items:center;gap:9px;padding:0 8px 20px}
+.brand-mark{
+  width:26px;height:26px;border-radius:6px;background:var(--accent);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.brand-mark svg{width:14px;height:14px;stroke:var(--ink)}
+.brand span{font-weight:700;font-size:15px;letter-spacing:-0.01em}
+nav{display:flex;flex-direction:column;gap:2px;flex:1}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-sm);
+  border:none;background:transparent;color:var(--ink-soft);font-weight:500;text-align:left;width:100%;
+}
+.nav-item svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;flex-shrink:0}
+.nav-item:hover{background:var(--bg);color:var(--ink)}
+.nav-item.on{background:var(--accent-wash);color:var(--accent-deep);font-weight:600}
+.side-foot{border-top:1px solid var(--line-soft);padding-top:12px;font-size:12px;color:var(--muted)}
+.side-foot button{background:none;border:none;color:var(--muted);padding:4px 0;font-size:12px}
+.side-foot button:hover{color:var(--ink)}
+
+main{flex:1;min-width:0;padding:26px 30px 60px}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+h1{font-size:24px;font-weight:700;margin:0;letter-spacing:-0.02em}
+.sub{color:var(--muted);font-size:13px;margin-top:2px}
+h2{font-size:15px;font-weight:700;margin:28px 0 12px}
+
+/* ---------- KPI ---------- */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+.kpi .k{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px}
+.kpi .v{font-size:23px;font-weight:700;letter-spacing:-0.02em}
+.kpi .n{font-size:12px;color:var(--muted);margin-top:3px}
+.kpi.lead{background:var(--ink);border-color:var(--ink);color:#fff}
+.kpi.lead .k{color:rgba(255,255,255,.65)}
+.kpi.lead .n{color:rgba(255,255,255,.55)}
+.kpi.lead .v{color:var(--accent)}
+
+/* ---------- TABLE ---------- */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{
+  text-align:left;font-size:11.5px;font-weight:700;color:var(--muted);
+  padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap;
+}
+th.num,td.num{text-align:right}
+td{padding:11px 14px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr.clickable{cursor:pointer}
+tbody tr.clickable:hover{background:var(--bg)}
+.mono{font-variant-numeric:tabular-nums}
+.strong{font-weight:600}
+.dim{color:var(--muted)}
+.neg{color:var(--danger)}
+
+.pill{
+  display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:600;
+  background:var(--bg);color:var(--ink-soft);border:1px solid var(--line);
+}
+.pill.good{background:var(--accent-wash);color:var(--accent-deep);border-color:#CFEFB4}
+.pill.warn{background:var(--danger-wash);color:var(--danger);border-color:#F0D2CF}
+.tagchip{
+  display:inline-block;padding:1px 7px;border-radius:4px;font-size:11.5px;
+  background:var(--accent-wash);color:var(--accent-deep);margin-right:4px;font-weight:600;
+}
+
+/* ---------- FILTERS ---------- */
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.filters select,.filters input{width:auto;min-width:120px;padding:7px 10px;font-size:13px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;background:var(--surface)}
+.seg button{border:none;background:transparent;padding:7px 13px;font-size:13px;color:var(--ink-soft);font-weight:500}
+.seg button.on{background:var(--ink);color:#fff;font-weight:600}
+
+/* ---------- MODAL ---------- */
+.overlay{
+  position:fixed;inset:0;background:rgba(27,36,48,.42);z-index:60;
+  display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;overflow-y:auto;
+}
+.modal{
+  background:var(--surface);border-radius:var(--r);width:100%;max-width:620px;
+  border:1px solid var(--line);
+}
+.modal-head{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.modal-head h3{margin:0;font-size:16px;font-weight:700}
+.modal-body{padding:22px}
+.modal-foot{padding:14px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:8px}
+.x{background:none;border:none;font-size:20px;color:var(--muted);line-height:1;padding:0 4px}
+
+/* ---------- MISC ---------- */
+.empty{padding:44px 20px;text-align:center;color:var(--muted)}
+.empty p{margin:0 0 14px}
+.toast{
+  position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:90;
+  background:var(--ink);color:#fff;padding:11px 18px;border-radius:var(--r-sm);
+  font-size:13.5px;font-weight:500;max-width:90vw;
+}
+.toast.err{background:var(--danger)}
+.err-msg{background:var(--danger-wash);color:var(--danger);padding:9px 12px;border-radius:var(--r-sm);font-size:13px;margin-bottom:14px}
+.bar{height:5px;background:var(--line-soft);border-radius:3px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--accent-deep);border-radius:3px}
+.bar i.over{background:var(--danger)}
+.split{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;align-items:start}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.box h3{margin:0 0 12px;font-size:14px;font-weight:700}
+.dl{display:flex;justify-content:space-between;padding:5px 0;font-size:13.5px}
+.dl.total{border-top:1px solid var(--line);margin-top:6px;padding-top:9px;font-weight:700}
+.dl span:first-child{color:var(--ink-soft)}
+.autolist{max-height:150px;overflow-y:auto;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--r-sm) var(--r-sm);background:var(--surface)}
+.autolist div{padding:7px 11px;font-size:13px;cursor:pointer}
+.autolist div:hover{background:var(--accent-wash)}
+
+@media (max-width:860px){
+  #app{flex-direction:column}
+  aside{width:100%;height:auto;position:static;flex-direction:row;align-items:center;
+        padding:10px 12px;overflow-x:auto;border-right:none;border-bottom:1px solid var(--line)}
+  .brand{padding:0 14px 0 4px}
+  nav{flex-direction:row;gap:4px;flex:none}
+  .nav-item{white-space:nowrap;padding:7px 11px}
+  .nav-item span{display:none}
+  .side-foot{display:none}
+  main{padding:18px 14px 50px}
+  .split{grid-template-columns:1fr}
+  .row,.row-3{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <div class="login-card">
+    <div class="login-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+    </div>
+    <h1>Fort Knox</h1>
+    <p>Gestionale commesse</p>
+    <div id="loginErr" class="err-msg hidden"></div>
+    <div class="field">
+      <label for="lEmail">Email</label>
+      <input type="email" id="lEmail" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="lPass">Password</label>
+      <input type="password" id="lPass" autocomplete="current-password">
+    </div>
+    <button class="btn btn-accent btn-block" id="lBtn">Entra</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+  <aside>
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      </div>
+      <span>Fort Knox</span>
+    </div>
+    <nav id="nav"></nav>
+    <div class="side-foot">
+      <div id="userEmail"></div>
+      <button id="btnLogout">Esci</button>
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div id="modalHost"></div>
+
+<script>
+// ============================================================
+// STATO E UTILITY
+// ============================================================
+const S = {
+  user:null,
+  vista:'riepilogo',
+  anno:new Date().getFullYear(),
+  soggetti:[], tipologie:[], tags:[], incarichi:[],
+  filtriDoc:{direzione:'', incassato:'', tag:'', q:''},
+  filtriInc:{soggetto_id:'', tipologia_id:'', stato:'', q:''}
+};
+
+const $ = (s,r)=> (r||document).querySelector(s);
+const esc = (s)=> String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const eur = (n)=> new Intl.NumberFormat('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n)||0)+' €';
+const eur0 = (n)=> new Intl.NumberFormat('it-IT',{maximumFractionDigits:0}).format(Number(n)||0)+' €';
+const dt = (d)=> d ? new Date(d).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+const oggi = ()=> new Date().toISOString().slice(0,10);
+
+async function api(path, opts){
+  const r = await fetch('/api'+path, Object.assign({
+    headers:{'Content-Type':'application/json'},
+    credentials:'same-origin'
+  }, opts||{}));
+  const testo = await r.text();
+  let dati = null;
+  try { dati = testo ? JSON.parse(testo) : null; } catch(e){ dati = {error:testo}; }
+  if(!r.ok) throw new Error((dati && dati.error) || 'Errore '+r.status);
+  return dati;
+}
+
+let toastT;
+function toast(msg, err){
+  clearTimeout(toastT);
+  const vecchio = $('.toast'); if(vecchio) vecchio.remove();
+  const t = document.createElement('div');
+  t.className = 'toast'+(err?' err':'');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  toastT = setTimeout(()=>t.remove(), 3200);
+}
+
+function modal(titolo, corpo, azioni){
+  const host = $('#modalHost');
+  host.innerHTML = `
+    <div class="overlay">
+      <div class="modal">
+        <div class="modal-head"><h3>${esc(titolo)}</h3><button class="x" data-close>&times;</button></div>
+        <div class="modal-body">${corpo}</div>
+        <div class="modal-foot">${azioni||''}</div>
+      </div>
+    </div>`;
+  host.querySelector('[data-close]').onclick = chiudiModal;
+  host.querySelector('.overlay').onclick = (e)=>{ if(e.target.classList.contains('overlay')) chiudiModal(); };
+}
+function chiudiModal(){ $('#modalHost').innerHTML=''; }
+
+// ============================================================
+// LOGIN
+// ============================================================
+async function login(){
+  const err = $('#loginErr');
+  err.classList.add('hidden');
+  try{
+    S.user = await api('/login',{method:'POST',body:JSON.stringify({
+      email:$('#lEmail').value, password:$('#lPass').value
+    })});
+    avvia();
+  }catch(e){
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+  }
+}
+$('#lBtn').onclick = login;
+$('#lPass').onkeydown = (e)=>{ if(e.key==='Enter') login(); };
+$('#lEmail').onkeydown = (e)=>{ if(e.key==='Enter') $('#lPass').focus(); };
+
+$('#btnLogout').onclick = async ()=>{
+  await api('/logout',{method:'POST'});
+  location.reload();
+};
+
+// ============================================================
+// NAVIGAZIONE
+// ============================================================
+const VOCI = [
+  {id:'riepilogo', t:'Riepilogo', i:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>'},
+  {id:'commesse',  t:'Commesse',  i:'<path d="M3 7h18v13H3zM8 7V4h8v3"/>'},
+  {id:'documenti', t:'Documenti', i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
+  {id:'anagrafica',t:'Anagrafica',i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'},
+  {id:'impostazioni',t:'Impostazioni',i:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'}
+];
+
+function renderNav(){
+  $('#nav').innerHTML = VOCI.map(v=>`
+    <button class="nav-item ${S.vista===v.id?'on':''}" data-vista="${v.id}">
+      <svg viewBox="0 0 24 24">${v.i}</svg><span>${v.t}</span>
+    </button>`).join('');
+  $('#nav').querySelectorAll('[data-vista]').forEach(b=>{
+    b.onclick = ()=> vai(b.dataset.vista);
+  });
+}
+
+function vai(v){ S.vista = v; renderNav(); render(); }
+
+async function render(){
+  const m = $('#main');
+  m.innerHTML = '<div class="empty">Caricamento…</div>';
+  try{
+    if(S.vista==='riepilogo') await vistaRiepilogo(m);
+    else if(S.vista==='commesse') await vistaCommesse(m);
+    else if(S.vista==='documenti') await vistaDocumenti(m);
+    else if(S.vista==='anagrafica') await vistaAnagrafica(m);
+    else if(S.vista==='impostazioni') await vistaImpostazioni(m);
+  }catch(e){
+    m.innerHTML = `<div class="err-msg">${esc(e.message)}</div>`;
+  }
+}
+
+function selettoreAnni(){
+  const y = new Date().getFullYear();
+  let o = '';
+  for(let a=y+1; a>=y-4; a--) o += `<option value="${a}" ${a===S.anno?'selected':''}>${a}</option>`;
+  return `<select id="selAnno">${o}</select>`;
+}
+function legaAnno(){
+  const s = $('#selAnno');
+  if(s) s.onchange = ()=>{ S.anno = Number(s.value); render(); };
+}
+
+// ============================================================
+// VISTA: RIEPILOGO
+// ============================================================
+async function vistaRiepilogo(m){
+  const [r, inc] = await Promise.all([
+    api('/riepilogo?anno='+S.anno),
+    api('/incarichi')
+  ]);
+  S.incarichi = inc;
+
+  const conOre = inc.filter(i=>i.orario_netto!=null)
+                    .sort((a,b)=> b.orario_netto - a.orario_netto);
+  const media = conOre.length
+    ? conOre.reduce((s,i)=>s+i.orario_netto,0)/conOre.length : null;
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Riepilogo ${S.anno}</h1>
+        <div class="sub">Margini al netto del ${r.aliquota_tasse}% stimato tra imposte e contributi</div></div>
+      <div class="filters" style="margin:0">${selettoreAnni()}</div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi lead"><div class="k">Margine netto</div><div class="v">${eur0(r.margine_netto)}</div>
+        <div class="n">lordo ${eur0(r.margine_lordo)}</div></div>
+      <div class="kpi"><div class="k">Ricavi</div><div class="v">${eur0(r.ricavi)}</div>
+        <div class="n">imponibile, IVA esclusa</div></div>
+      <div class="kpi"><div class="k">Costi</div><div class="v">${eur0(r.costi)}</div>
+        <div class="n">${r.ricavi ? Math.round(r.costi/r.ricavi*100) : 0}% dei ricavi</div></div>
+      <div class="kpi"><div class="k">Da accantonare</div><div class="v">${eur0(r.da_accantonare)}</div>
+        <div class="n">${eur0(r.tasse_stimate)} meno ritenute già subite</div></div>
+      <div class="kpi"><div class="k">Saldo IVA</div><div class="v">${eur0(r.iva_saldo)}</div>
+        <div class="n">${eur0(r.iva_debito)} a debito, ${eur0(r.iva_credito)} a credito</div></div>
+      <div class="kpi"><div class="k">Da incassare</div><div class="v">${eur0(r.da_incassare)}</div>
+        <div class="n">fatture senza data di incasso</div></div>
+    </div>
+
+    <h2>Commesse per compenso orario netto</h2>
+    ${conOre.length ? `
+    <div class="panel"><table>
+      <thead><tr>
+        <th>Commessa</th><th>Cliente</th>
+        <th class="num">Ricavi</th><th class="num">Ore</th>
+        <th class="num">€/h netto</th>
+      </tr></thead>
+      <tbody>${conOre.map(i=>`
+        <tr class="clickable" data-inc="${i.id}">
+          <td class="strong">${esc(i.titolo)}</td>
+          <td class="dim">${esc(i.cliente)}</td>
+          <td class="num mono">${eur0(i.ricavi)}</td>
+          <td class="num mono">${i.ore}</td>
+          <td class="num mono strong">
+            <span class="pill ${media!=null && i.orario_netto>=media ? 'good':''}">${eur(i.orario_netto)}</span>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <div class="sub" style="margin-top:8px">
+      Media ${eur(media)} all'ora. ${inc.length-conOre.length} commesse senza ore registrate non compaiono qui.
+    </div>` : `
+    <div class="panel"><div class="empty">
+      <p>Nessuna commessa ha ore registrate.<br>Il compenso orario si calcola dagli interventi.</p>
+      <button class="btn btn-ghost btn-sm" onclick="vai('commesse')">Vai alle commesse</button>
+    </div></div>`}
+  `;
+  legaAnno();
+  m.querySelectorAll('[data-inc]').forEach(t=>{
+    t.onclick = ()=> apriCommessa(t.dataset.inc);
+  });
+}
+
+// ============================================================
+// VISTA: COMMESSE
+// ============================================================
+async function vistaCommesse(m){
+  const q = new URLSearchParams();
+  Object.entries(S.filtriInc).forEach(([k,v])=>{ if(v) q.set(k,v); });
+  const [inc] = await Promise.all([api('/incarichi?'+q.toString())]);
+  S.incarichi = inc;
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Commesse</h1><div class="sub">${inc.length} risultati</div></div>
+      <button class="btn btn-accent" id="btnNuovaC">Nuova commessa</button>
+    </div>
+    <div class="filters">
+      <input type="text" id="fq" placeholder="Cerca…" value="${esc(S.filtriInc.q)}">
+      <select id="fCliente"><option value="">Tutti i clienti</option>
+        ${S.soggetti.filter(s=>s.is_cliente).map(s=>`<option value="${s.id}" ${S.filtriInc.soggetto_id==s.id?'selected':''}>${esc(s.denominazione)}</option>`).join('')}
+      </select>
+      <select id="fTip"><option value="">Tutte le tipologie</option>
+        ${S.tipologie.map(t=>`<option value="${t.id}" ${S.filtriInc.tipologia_id==t.id?'selected':''}>${esc(t.nome)}</option>`).join('')}
+      </select>
+      <select id="fStato"><option value="">Tutti gli stati</option>
+        ${['in_corso','concluso','sospeso','annullato'].map(s=>`<option value="${s}" ${S.filtriInc.stato===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}
+      </select>
+    </div>
+    ${inc.length ? `
+    <div class="panel"><table>
+      <thead><tr>
+        <th>Commessa</th><th>Cliente</th><th>Stato</th>
+        <th class="num">Ricavi</th><th class="num">Costi</th>
+        <th class="num">Margine netto</th><th class="num">Ore</th><th class="num">€/h netto</th>
+      </tr></thead>
+      <tbody>${inc.map(i=>`
+        <tr class="clickable" data-inc="${i.id}">
+          <td class="strong">${esc(i.titolo)}</td>
+          <td class="dim">${esc(i.cliente)}</td>
+          <td><span class="pill ${i.stato==='in_corso'?'good':''}">${i.stato.replace('_',' ')}</span></td>
+          <td class="num mono">${eur0(i.ricavi)}</td>
+          <td class="num mono">${eur0(i.costi)}</td>
+          <td class="num mono strong ${i.margine_netto<0?'neg':''}">${eur0(i.margine_netto)}</td>
+          <td class="num mono">${i.ore||'—'}</td>
+          <td class="num mono">${i.orario_netto!=null?eur(i.orario_netto):'—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>` : `
+    <div class="panel"><div class="empty"><p>Nessuna commessa con questi filtri.</p></div></div>`}
+  `;
+
+  $('#btnNuovaC').onclick = ()=> formCommessa();
+  m.querySelectorAll('[data-inc]').forEach(t=> t.onclick = ()=> apriCommessa(t.dataset.inc));
+  const rif = ()=>{ 
+    S.filtriInc.q = $('#fq').value;
+    S.filtriInc.soggetto_id = $('#fCliente').value;
+    S.filtriInc.tipologia_id = $('#fTip').value;
+    S.filtriInc.stato = $('#fStato').value;
+    render();
+  };
+  ['fCliente','fTip','fStato'].forEach(id=> $('#'+id).onchange = rif);
+  let tq; $('#fq').oninput = ()=>{ clearTimeout(tq); tq=setTimeout(rif,400); };
+}
+
+// ---------- DETTAGLIO COMMESSA ----------
+async function apriCommessa(id){
+  const d = await api('/incarichi/'+id);
+  const mt = d.metriche;
+  const pct = mt.ore_previste ? Math.min(100, Math.round(mt.ore/mt.ore_previste*100)) : null;
+  const sfora = mt.ore_previste && mt.ore > mt.ore_previste;
+
+  const m = $('#main');
+  m.innerHTML = `
+    <div class="head">
+      <div>
+        <button class="btn-ghost btn btn-sm" id="indietro" style="margin-bottom:10px">← Commesse</button>
+        <h1>${esc(d.titolo)}</h1>
+        <div class="sub">${esc(d.cliente)} · ${dt(d.data_inizio)}${d.data_fine?' → '+dt(d.data_fine):''}
+          ${d.tipologie.map(t=>`<span class="tagchip">${esc(t.nome)}</span>`).join(' ')}</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btnModC">Modifica</button>
+        <button class="btn btn-accent" id="btnNuovoInt">Aggiungi intervento</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid" style="margin-bottom:6px">
+      <div class="kpi lead"><div class="k">€/h netto</div>
+        <div class="v">${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</div>
+        <div class="n">${mt.ore} ore registrate</div></div>
+      <div class="kpi"><div class="k">Ricavi</div><div class="v">${eur0(mt.ricavi)}</div>
+        <div class="n">${mt.orario_fatturato!=null?eur(mt.orario_fatturato)+'/h':'—'}</div></div>
+      <div class="kpi"><div class="k">Costi</div><div class="v">${eur0(mt.costi)}</div>
+        <div class="n">${eur0(mt.costi_diretti)} diretti, ${eur0(mt.costi_ripartiti)} ripartiti</div></div>
+      <div class="kpi"><div class="k">Margine netto</div>
+        <div class="v ${mt.margine_netto<0?'neg':''}">${eur0(mt.margine_netto)}</div>
+        <div class="n">lordo ${eur0(mt.margine_lordo)}, tasse ${eur0(mt.tasse_stimate)}</div></div>
+    </div>
+
+    ${mt.ore_previste ? `
+    <div class="box" style="margin-top:16px">
+      <h3>Monte ore</h3>
+      <div class="dl"><span>${mt.ore} ore su ${mt.ore_previste} previste</span>
+        <span class="strong ${sfora?'neg':''}">${pct}%</span></div>
+      <div class="bar"><i class="${sfora?'over':''}" style="width:${pct}%"></i></div>
+      ${sfora?'<div class="sub" style="margin-top:8px">Hai superato il monte ore previsto.</div>':''}
+    </div>`:''}
+
+    <div class="split" style="margin-top:16px">
+      <div>
+        <h2 style="margin-top:0">Interventi</h2>
+        ${d.interventi.length ? `
+        <div class="panel"><table>
+          <thead><tr><th>Data</th><th>Oggetto</th><th class="num">Ore</th><th></th></tr></thead>
+          <tbody>${d.interventi.map(v=>`
+            <tr><td class="dim mono">${dt(v.data)}</td>
+              <td>${esc(v.oggetto)}${v.note?`<div class="sub">${esc(v.note)}</div>`:''}</td>
+              <td class="num mono strong">${v.ore}</td>
+              <td class="num"><button class="btn btn-danger btn-sm" data-delint="${v.id}">Elimina</button></td></tr>`).join('')}
+          </tbody></table></div>` : `
+        <div class="panel"><div class="empty"><p>Nessun intervento registrato.<br>Senza ore non si calcola il compenso orario.</p></div></div>`}
+
+        <h2>Documenti</h2>
+        ${d.documenti.length ? `
+        <div class="panel"><table>
+          <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th class="num">Imponibile</th><th>Incasso</th></tr></thead>
+          <tbody>${d.documenti.map(x=>`
+            <tr><td class="dim mono">${dt(x.data)}</td>
+              <td>${esc(x.numero)} ${x.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}</td>
+              <td class="dim">${esc(x.controparte)}</td>
+              <td class="num mono ${x.segno<0?'neg':''}">${eur0(x.imponibile*x.segno)}</td>
+              <td>${x.direzione==='attiva' ? (x.data_incasso?`<span class="pill good">${dt(x.data_incasso)}</span>`:'<span class="pill warn">da incassare</span>') : '<span class="dim">costo</span>'}</td>
+            </tr>`).join('')}
+          </tbody></table></div>` : `
+        <div class="panel"><div class="empty"><p>Nessun documento collegato.</p></div></div>`}
+      </div>
+
+      <div class="box">
+        <h3>Conto economico</h3>
+        <div class="dl"><span>Ricavi</span><span class="mono">${eur(mt.ricavi)}</span></div>
+        <div class="dl"><span>Costi</span><span class="mono">− ${eur(mt.costi)}</span></div>
+        <div class="dl total"><span>Margine lordo</span><span class="mono">${eur(mt.margine_lordo)}</span></div>
+        <div class="dl"><span>Tasse stimate (${mt.aliquota_tasse}%)</span><span class="mono">− ${eur(mt.tasse_stimate)}</span></div>
+        <div class="dl total"><span>Margine netto</span><span class="mono">${eur(mt.margine_netto)}</span></div>
+        <div class="dl" style="margin-top:10px"><span>€/h fatturato</span><span class="mono">${mt.orario_fatturato!=null?eur(mt.orario_fatturato):'—'}</span></div>
+        <div class="dl"><span>€/h lordo</span><span class="mono">${mt.orario_lordo!=null?eur(mt.orario_lordo):'—'}</span></div>
+        <div class="dl"><span>€/h netto</span><span class="mono strong">${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</span></div>
+        ${d.descrizione?`<div style="margin-top:14px;font-size:13px;color:var(--ink-soft)">${esc(d.descrizione)}</div>`:''}
+      </div>
+    </div>
+  `;
+  $('#indietro').onclick = ()=> vai('commesse');
+  $('#btnModC').onclick = ()=> formCommessa(d);
+  $('#btnNuovoInt').onclick = ()=> formIntervento(d.id);
+  m.querySelectorAll('[data-delint]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Eliminare questo intervento?')) return;
+    await api('/interventi/'+b.dataset.delint,{method:'DELETE'});
+    toast('Intervento eliminato'); apriCommessa(id);
+  });
+}
+
+// ---------- FORM COMMESSA ----------
+function formCommessa(d){
+  const e = d||{};
+  const tipSel = (d && d.tipologie) ? d.tipologie.map(t=>t.id) : [];
+  modal(d?'Modifica commessa':'Nuova commessa', `
+    <div class="field"><label>Cliente</label>
+      <select id="cSog">${S.soggetti.filter(s=>s.is_cliente).map(s=>
+        `<option value="${s.id}" ${e.soggetto_id==s.id?'selected':''}>${esc(s.denominazione)}</option>`).join('')}</select></div>
+    <div class="field"><label>Titolo</label><input type="text" id="cTit" value="${esc(e.titolo||'')}"></div>
+    <div class="field"><label>Tipologie</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${S.tipologie.map(t=>`
+          <label class="pill" style="cursor:pointer;padding:5px 10px">
+            <input type="checkbox" class="cTip" value="${t.id}" ${tipSel.includes(t.id)?'checked':''}
+              style="width:13px;height:13px;margin-right:5px;vertical-align:-2px"> ${esc(t.nome)}
+          </label>`).join('')}
+      </div></div>
+    <div class="row">
+      <div class="field"><label>Inizio</label><input type="date" id="cIni" value="${e.data_inizio?e.data_inizio.slice(0,10):oggi()}"></div>
+      <div class="field"><label>Fine</label><input type="date" id="cFin" value="${e.data_fine?e.data_fine.slice(0,10):''}"></div>
+    </div>
+    <div class="row-3">
+      <div class="field"><label>Importo previsto</label><input type="number" step="0.01" id="cImp" value="${e.importo_previsto||''}"></div>
+      <div class="field"><label>Costi previsti</label><input type="number" step="0.01" id="cCos" value="${e.costi_previsti||''}"></div>
+      <div class="field"><label>Ore previste</label><input type="number" step="0.5" id="cOre" value="${e.ore_previste||''}"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Stato</label><select id="cSta">
+        ${['in_corso','concluso','sospeso','annullato'].map(s=>`<option value="${s}" ${e.stato===s?'selected':''}>${s.replace('_',' ')}</option>`).join('')}
+      </select></div>
+      <div class="field" style="display:flex;align-items:flex-end;padding-bottom:12px">
+        <div class="check"><input type="checkbox" id="cRic" ${e.ricorrente?'checked':''}><label for="cRic">Commessa ricorrente</label></div>
+      </div>
+    </div>
+    <div class="field"><label>Descrizione</label><textarea id="cDes">${esc(e.descrizione||'')}</textarea></div>
+  `, `<button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
+      <button class="btn btn-accent" id="cSalva">Salva</button>`);
+
+  $('#cSalva').onclick = async ()=>{
+    const body = {
+      soggetto_id:$('#cSog').value, titolo:$('#cTit').value.trim(),
+      data_inizio:$('#cIni').value||null, data_fine:$('#cFin').value||null,
+      importo_previsto:$('#cImp').value||null, costi_previsti:$('#cCos').value||null,
+      ore_previste:$('#cOre').value||null, stato:$('#cSta').value,
+      ricorrente:$('#cRic').checked, descrizione:$('#cDes').value,
+      tipologie:[...document.querySelectorAll('.cTip:checked')].map(c=>Number(c.value))
+    };
+    if(!body.titolo) return toast('Serve un titolo', true);
+    try{
+      const r = d ? await api('/incarichi/'+d.id,{method:'PUT',body:JSON.stringify(body)})
+                  : await api('/incarichi',{method:'POST',body:JSON.stringify(body)});
+      chiudiModal(); toast('Commessa salvata');
+      d ? apriCommessa(d.id) : apriCommessa(r.id);
+    }catch(err){ toast(err.message, true); }
+  };
+}
+
+// ---------- FORM INTERVENTO ----------
+async function formIntervento(incaricoId){
+  const oggetti = await api('/interventi/oggetti');
+  modal('Nuovo intervento', `
+    <div class="row">
+      <div class="field"><label>Data</label><input type="date" id="iData" value="${oggi()}"></div>
+      <div class="field"><label>Ore (decimali)</label><input type="number" step="0.25" id="iOre" placeholder="1.5"></div>
+    </div>
+    <div class="field" style="position:relative">
+      <label>Oggetto</label>
+      <input type="text" id="iOgg" autocomplete="off" placeholder="Es. revisione contenuti">
+      <div id="iAuto" class="autolist hidden"></div>
+    </div>
+    <div class="field"><label>Note</label><textarea id="iNote"></textarea></div>
+  `, `<button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
+      <button class="btn btn-accent" id="iSalva">Salva</button>`);
+
+  const inp = $('#iOgg'), lista = $('#iAuto');
+  inp.oninput = ()=>{
+    const v = inp.value.toLowerCase().trim();
+    const f = v ? oggetti.filter(o=>o.toLowerCase().includes(v)).slice(0,8) : oggetti.slice(0,8);
+    if(!f.length){ lista.classList.add('hidden'); return; }
+    lista.innerHTML = f.map(o=>`<div data-o="${esc(o)}">${esc(o)}</div>`).join('');
+    lista.classList.remove('hidden');
+    lista.querySelectorAll('[data-o]').forEach(x=> x.onclick = ()=>{
+      inp.value = x.dataset.o; lista.classList.add('hidden');
+    });
+  };
+  inp.onfocus = inp.oninput;
+
+  $('#iSalva').onclick = async ()=>{
+    try{
+      await api('/interventi',{method:'POST',body:JSON.stringify({
+        incarico_id:incaricoId, data:$('#iData').value,
+        oggetto:$('#iOgg').value.trim(), ore:$('#iOre').value, note:$('#iNote').value
+      })});
+      chiudiModal(); toast('Intervento aggiunto'); apriCommessa(incaricoId);
+    }catch(err){ toast(err.message, true); }
+  };
+}
+
+// ============================================================
+// VISTA: DOCUMENTI
+// ============================================================
+async function vistaDocumenti(m){
+  const q = new URLSearchParams({anno:S.anno});
+  Object.entries(S.filtriDoc).forEach(([k,v])=>{ if(v) q.set(k,v); });
+  const docs = await api('/documenti?'+q.toString());
+
+  const tot = docs.reduce((s,d)=> s + Number(d.imponibile)*d.segno*(d.direzione==='attiva'?1:-1), 0);
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Documenti</h1><div class="sub">${docs.length} risultati · saldo ${eur0(tot)}</div></div>
+      <button class="btn btn-accent" id="btnNuovoD">Nuovo documento</button>
+    </div>
+    <div class="filters">
+      ${selettoreAnni()}
+      <div class="seg">
+        <button data-dir="" class="${S.filtriDoc.direzione===''?'on':''}">Tutti</button>
+        <button data-dir="attiva" class="${S.filtriDoc.direzione==='attiva'?'on':''}">Ricavi</button>
+        <button data-dir="passiva" class="${S.filtriDoc.direzione==='passiva'?'on':''}">Costi</button>
+      </div>
+      <select id="fInc"><option value="">Tutti gli incassi</option>
+        <option value="no" ${S.filtriDoc.incassato==='no'?'selected':''}>Da incassare</option>
+        <option value="si" ${S.filtriDoc.incassato==='si'?'selected':''}>Incassati</option>
+      </select>
+      <select id="fTag"><option value="">Tutti i tag</option>
+        ${S.tags.map(t=>`<option value="${esc(t.nome)}" ${S.filtriDoc.tag===t.nome?'selected':''}>#${esc(t.nome)}</option>`).join('')}
+      </select>
+      <input type="text" id="fdq" placeholder="Cerca…" value="${esc(S.filtriDoc.q)}">
+    </div>
+    ${docs.length ? `
+    <div class="panel"><table>
+      <thead><tr>
+        <th>Data</th><th>Numero</th><th>Controparte</th><th>Commessa</th><th>Tag</th>
+        <th class="num">Imponibile</th><th class="num">IVA</th><th>Incasso</th>
+      </tr></thead>
+      <tbody>${docs.map(d=>`
+        <tr class="clickable" data-doc="${d.id}">
+          <td class="dim mono">${dt(d.data)}</td>
+          <td>${esc(d.numero)}
+            ${d.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}
+            ${d.reverse_charge?'<span class="pill">RC</span>':''}</td>
+          <td class="strong">${esc(d.controparte)}</td>
+          <td class="dim">${d.incarico?esc(d.incarico):'—'}</td>
+          <td>${(d.tags||[]).map(t=>`<span class="tagchip">${esc(t)}</span>`).join('')}</td>
+          <td class="num mono ${d.direzione==='passiva'?'neg':''}">${d.direzione==='passiva'?'− ':''}${eur0(d.imponibile*d.segno)}</td>
+          <td class="num mono dim">${eur0(d.imposta)}</td>
+          <td>${d.direzione==='attiva'
+            ? (d.data_incasso?`<span class="pill good">${dt(d.data_incasso)}</span>`
+               :`<button class="btn btn-ghost btn-sm" data-inc="${d.id}">Segna incassata</button>`)
+            : '<span class="dim">—</span>'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>` : `
+    <div class="panel"><div class="empty">
+      <p>Nessun documento con questi filtri.</p>
+      <button class="btn btn-accent btn-sm" onclick="formDocumento()">Inserisci il primo</button>
+    </div></div>`}
+  `;
+  legaAnno();
+  $('#btnNuovoD').onclick = ()=> formDocumento();
+  m.querySelectorAll('[data-dir]').forEach(b=> b.onclick = ()=>{
+    S.filtriDoc.direzione = b.dataset.dir; render();
+  });
+  $('#fInc').onchange = ()=>{ S.filtriDoc.incassato = $('#fInc').value; render(); };
+  $('#fTag').onchange = ()=>{ S.filtriDoc.tag = $('#fTag').value; render(); };
+  let tq; $('#fdq').oninput = ()=>{ clearTimeout(tq); tq=setTimeout(()=>{
+    S.filtriDoc.q = $('#fdq').value; render();
+  },400); };
+
+  m.querySelectorAll('[data-inc]').forEach(b=> b.onclick = async (ev)=>{
+    ev.stopPropagation();
+    await api('/documenti/'+b.dataset.inc+'/incasso',{method:'POST',body:JSON.stringify({})});
+    toast('Segnata come incassata'); render();
+  });
+  m.querySelectorAll('[data-doc]').forEach(t=> t.onclick = async ()=>{
+    const d = await api('/documenti/'+t.dataset.doc);
+    formDocumento(d);
+  });
+}
+
+// ---------- FORM DOCUMENTO ----------
+function formDocumento(d){
+  const e = d||{};
+  const passiva = e.direzione==='passiva';
+  modal(d?'Modifica documento':'Nuovo documento', `
+    <div class="seg" style="margin-bottom:16px">
+      <button id="dAtt" class="${!passiva?'on':''}">Ricavo (fattura emessa)</button>
+      <button id="dPas" class="${passiva?'on':''}">Costo (fattura ricevuta)</button>
+    </div>
+    <input type="hidden" id="dDir" value="${passiva?'passiva':'attiva'}">
+
+    <div class="field"><label id="lblSog">${passiva?'Fornitore':'Cliente'}</label>
+      <select id="dSog">${S.soggetti.map(s=>
+        `<option value="${s.id}" ${e.soggetto_id==s.id?'selected':''}>${esc(s.denominazione)}</option>`).join('')}</select></div>
+
+    <div class="row-3">
+      <div class="field"><label>Numero</label><input type="text" id="dNum" value="${esc(e.numero||'')}"></div>
+      <div class="field"><label>Data</label><input type="date" id="dData" value="${e.data?e.data.slice(0,10):oggi()}"></div>
+      <div class="field"><label>Tipo</label><select id="dTipo">
+        <option value="TD01" ${e.tipo_documento==='TD01'?'selected':''}>TD01 fattura</option>
+        <option value="TD04" ${e.tipo_documento==='TD04'?'selected':''}>TD04 nota di credito</option>
+        <option value="TD17" ${e.tipo_documento==='TD17'?'selected':''}>TD17 reverse charge</option>
+        <option value="TD24" ${e.tipo_documento==='TD24'?'selected':''}>TD24 differita</option>
+      </select></div>
+    </div>
+
+    <div class="row">
+      <div class="field"><label>Importo</label>
+        <input type="number" step="0.01" id="dImporto" value="${e.imponibile||''}"></div>
+      <div class="field"><label>Aliquota IVA</label>
+        <input type="number" step="0.01" id="dIva" value="${e.imponibile && Number(e.imponibile) ? Math.round(Number(e.imposta)/Number(e.imponibile)*10000)/100 : 22}"></div>
+    </div>
+    <div class="check" id="wrapIvaInc"><input type="checkbox" id="dIvaInc"><label for="dIvaInc">L'importo comprende già l'IVA</label></div>
+    <div class="check" id="wrapRit"><input type="checkbox" id="dRit" checked><label for="dRit">Applica ritenuta d'acconto</label></div>
+    <div class="check hidden" id="wrapRc"><input type="checkbox" id="dRc" ${e.reverse_charge?'checked':''}><label for="dRc">Reverse charge (IVA neutra)</label></div>
+    <div class="check hidden" id="wrapFf"><input type="checkbox" id="dFf" ${e.fornitore_forfettario?'checked':''}><label for="dFf">Fornitore forfettario (nessuna IVA)</label></div>
+
+    <div class="field"><label>Commessa</label>
+      <select id="dInc"><option value="">Nessuna</option>
+        ${S.incarichi.map(i=>`<option value="${i.id}" ${e.incarico_id==i.id?'selected':''}>${esc(i.titolo)} — ${esc(i.cliente)}</option>`).join('')}
+      </select></div>
+
+    <div class="field"><label>Tag, separati da virgola</label>
+      <input type="text" id="dTags" value="${esc((e.tags||[]).join(', '))}" placeholder="social, attrezzatura">
+      <div class="sub" style="margin-top:5px">${S.tags.slice(0,10).map(t=>`<span class="tagchip" style="cursor:pointer" data-addtag="${esc(t.nome)}">${esc(t.nome)}</span>`).join('')}</div>
+    </div>
+
+    <div class="row">
+      <div class="field"><label>Scadenza</label><input type="date" id="dScad" value="${e.data_scadenza?e.data_scadenza.slice(0,10):''}"></div>
+      <div class="field"><label>Data incasso</label><input type="date" id="dIncasso" value="${e.data_incasso?e.data_incasso.slice(0,10):''}"></div>
+    </div>
+    <div class="field"><label>Descrizione</label><textarea id="dDesc">${esc(e.descrizione||'')}</textarea></div>
+    <div class="box" id="dAnte" style="background:var(--bg)"></div>
+  `, `${d?'<button class="btn btn-danger" id="dElimina">Elimina</button>':''}
+      <button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
+      <button class="btn btn-accent" id="dSalva">Salva</button>`);
+
+  function modo(){
+    const p = $('#dDir').value==='passiva';
+    $('#lblSog').textContent = p?'Fornitore':'Cliente';
+    $('#wrapIvaInc').classList.toggle('hidden', p);
+    $('#wrapRit').classList.toggle('hidden', p);
+    $('#wrapRc').classList.toggle('hidden', !p);
+    $('#wrapFf').classList.toggle('hidden', !p);
+    $('#dAtt').classList.toggle('on', !p);
+    $('#dPas').classList.toggle('on', p);
+    anteprima();
+  }
+  function anteprima(){
+    const p = $('#dDir').value==='passiva';
+    const imp0 = Number($('#dImporto').value)||0;
+    const aIva = Number($('#dIva').value)||0;
+    let h = '';
+    if(p){
+      const ff = $('#dFf').checked, rc = $('#dRc').checked;
+      const iva = ff?0:imp0*aIva/100;
+      h = `<div class="dl"><span>Imponibile</span><span class="mono">${eur(imp0)}</span></div>
+           <div class="dl"><span>IVA${ff?' (forfettario)':''}</span><span class="mono">${eur(iva)}</span></div>
+           <div class="dl total"><span>Totale</span><span class="mono">${eur(rc?imp0:imp0+iva)}</span></div>
+           ${rc?'<div class="sub" style="margin-top:6px">IVA autofatturata: a debito e a credito, effetto netto zero.</div>':''}`;
+    }else{
+      const imponibile = $('#dIvaInc').checked ? imp0/(1+aIva/100) : imp0;
+      const prest = imponibile/1.04, cassa = imponibile-prest;
+      const iva = imponibile*aIva/100, tot = imponibile+iva;
+      const rit = $('#dRit').checked ? imponibile*0.20 : 0;
+      h = `<div class="dl"><span>Prestazione</span><span class="mono">${eur(prest)}</span></div>
+           <div class="dl"><span>Cassa 4%</span><span class="mono">${eur(cassa)}</span></div>
+           <div class="dl total"><span>Imponibile</span><span class="mono">${eur(imponibile)}</span></div>
+           <div class="dl"><span>IVA ${aIva}%</span><span class="mono">${eur(iva)}</span></div>
+           <div class="dl total"><span>Totale fattura</span><span class="mono">${eur(tot)}</span></div>
+           <div class="dl"><span>Ritenuta</span><span class="mono">${rit?'− '+eur(rit):'—'}</span></div>
+           <div class="dl total"><span>Bonifico atteso</span><span class="mono">${eur(tot-rit)}</span></div>`;
+    }
+    $('#dAnte').innerHTML = '<h3>Calcolo</h3>'+h;
+  }
+
+  $('#dAtt').onclick = ()=>{ $('#dDir').value='attiva'; modo(); };
+  $('#dPas').onclick = ()=>{ $('#dDir').value='passiva'; modo(); };
+  ['dImporto','dIva'].forEach(i=> $('#'+i).oninput = anteprima);
+  ['dIvaInc','dRit','dRc','dFf'].forEach(i=> $('#'+i).onchange = anteprima);
+  $('#dTipo').onchange = ()=>{
+    if($('#dTipo').value==='TD17'){ $('#dRc').checked = true; }
+    anteprima();
+  };
+  document.querySelectorAll('[data-addtag]').forEach(c=> c.onclick = ()=>{
+    const cur = $('#dTags').value.split(',').map(x=>x.trim()).filter(Boolean);
+    if(!cur.includes(c.dataset.addtag)) cur.push(c.dataset.addtag);
+    $('#dTags').value = cur.join(', ');
+  });
+  modo();
+
+  $('#dSalva').onclick = async ()=>{
+    const body = {
+      direzione:$('#dDir').value, soggetto_id:$('#dSog').value,
+      numero:$('#dNum').value.trim(), data:$('#dData').value,
+      tipo_documento:$('#dTipo').value,
+      importo:$('#dImporto').value, iva_aliquota:$('#dIva').value,
+      iva_inclusa:$('#dIvaInc').checked, con_ritenuta:$('#dRit').checked,
+      reverse_charge:$('#dRc').checked, fornitore_forfettario:$('#dFf').checked,
+      incarico_id:$('#dInc').value||null,
+      data_scadenza:$('#dScad').value||null, data_incasso:$('#dIncasso').value||null,
+      descrizione:$('#dDesc').value,
+      tags:$('#dTags').value.split(',').map(x=>x.trim()).filter(Boolean)
+    };
+    if(!body.numero) return toast('Serve il numero documento', true);
+    try{
+      d ? await api('/documenti/'+d.id,{method:'PUT',body:JSON.stringify(body)})
+        : await api('/documenti',{method:'POST',body:JSON.stringify(body)});
+      chiudiModal(); toast('Documento salvato');
+      await caricaBase(); render();
+    }catch(err){ toast(err.message, true); }
+  };
+  if(d) $('#dElimina').onclick = async ()=>{
+    if(!confirm('Eliminare questo documento?')) return;
+    await api('/documenti/'+d.id,{method:'DELETE'});
+    chiudiModal(); toast('Documento eliminato'); render();
+  };
+}
+
+// ============================================================
+// VISTA: ANAGRAFICA
+// ============================================================
+async function vistaAnagrafica(m){
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Anagrafica</h1><div class="sub">${S.soggetti.length} soggetti</div></div>
+      <button class="btn btn-accent" id="btnNuovoS">Nuovo soggetto</button>
+    </div>
+    ${S.soggetti.length ? `
+    <div class="panel"><table>
+      <thead><tr><th>Denominazione</th><th>P.IVA</th><th>Ruolo</th><th>Ritenuta</th><th>Tipo</th></tr></thead>
+      <tbody>${S.soggetti.map(s=>`
+        <tr class="clickable" data-sog="${s.id}">
+          <td class="strong">${esc(s.denominazione)}</td>
+          <td class="dim mono">${esc(s.piva||s.codice_fiscale||'—')}</td>
+          <td>${s.is_cliente?'<span class="pill good">cliente</span> ':''}${s.is_fornitore?'<span class="pill">fornitore</span>':''}</td>
+          <td>${s.is_cliente ? (s.sostituto_imposta?'<span class="dim">sì</span>':'<span class="pill warn">no</span>') : '<span class="dim">—</span>'}</td>
+          <td class="dim">${s.tipo==='pa'?'PA':'privato'}</td>
+        </tr>`).join('')}
+      </tbody></table></div>` : `
+    <div class="panel"><div class="empty">
+      <p>Nessun soggetto in anagrafica.<br>Servono i clienti prima di poter creare commesse.</p>
+      <button class="btn btn-accent btn-sm" onclick="formSoggetto()">Aggiungi il primo</button>
+    </div></div>`}
+  `;
+  $('#btnNuovoS').onclick = ()=> formSoggetto();
+  m.querySelectorAll('[data-sog]').forEach(t=> t.onclick = ()=>{
+    formSoggetto(S.soggetti.find(s=>s.id==t.dataset.sog));
+  });
+}
+
+function formSoggetto(s){
+  const e = s||{};
+  modal(s?'Modifica soggetto':'Nuovo soggetto', `
+    <div class="field"><label>Denominazione</label><input type="text" id="sDen" value="${esc(e.denominazione||'')}"></div>
+    <div class="row">
+      <div class="field"><label>Partita IVA</label><input type="text" id="sPiva" value="${esc(e.piva||'')}"></div>
+      <div class="field"><label>Codice fiscale</label><input type="text" id="sCf" value="${esc(e.codice_fiscale||'')}"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Tipo</label><select id="sTipo">
+        <option value="privato" ${e.tipo!=='pa'?'selected':''}>Privato</option>
+        <option value="pa" ${e.tipo==='pa'?'selected':''}>Pubblica amministrazione</option>
+      </select></div>
+      <div class="field"><label>Email</label><input type="email" id="sMail" value="${esc(e.email||'')}"></div>
+    </div>
+    <div class="check"><input type="checkbox" id="sCli" ${e.is_cliente!==false?'checked':''}><label for="sCli">È un cliente</label></div>
+    <div class="check"><input type="checkbox" id="sFor" ${e.is_fornitore?'checked':''}><label for="sFor">È un fornitore</label></div>
+    <div class="check"><input type="checkbox" id="sSost" ${e.sostituto_imposta!==false?'checked':''}><label for="sSost">Sostituto d'imposta</label></div>
+    <div class="sub" style="margin:-4px 0 14px">Se lo togli, le fatture a questo cliente nascono senza ritenuta d'acconto.</div>
+    <div class="field"><label>Note</label><textarea id="sNote">${esc(e.note||'')}</textarea></div>
+  `, `${s?'<button class="btn btn-danger" id="sElimina">Elimina</button>':''}
+      <button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
+      <button class="btn btn-accent" id="sSalva">Salva</button>`);
+
+  $('#sSalva').onclick = async ()=>{
+    const body = {
+      denominazione:$('#sDen').value.trim(), piva:$('#sPiva').value.trim()||null,
+      codice_fiscale:$('#sCf').value.trim()||null, tipo:$('#sTipo').value,
+      email:$('#sMail').value.trim()||null, is_cliente:$('#sCli').checked,
+      is_fornitore:$('#sFor').checked, sostituto_imposta:$('#sSost').checked,
+      note:$('#sNote').value
+    };
+    if(!body.denominazione) return toast('Serve la denominazione', true);
+    try{
+      s ? await api('/soggetti/'+s.id,{method:'PUT',body:JSON.stringify(body)})
+        : await api('/soggetti',{method:'POST',body:JSON.stringify(body)});
+      chiudiModal(); toast('Soggetto salvato');
+      await caricaBase(); render();
+    }catch(err){ toast(err.message, true); }
+  };
+  if(s) $('#sElimina').onclick = async ()=>{
+    if(!confirm('Eliminare questo soggetto?')) return;
+    try{
+      await api('/soggetti/'+s.id,{method:'DELETE'});
+      chiudiModal(); toast('Soggetto eliminato');
+      await caricaBase(); render();
+    }catch(err){ toast(err.message, true); }
+  };
+}
+
+// ============================================================
+// VISTA: IMPOSTAZIONI
+// ============================================================
+async function vistaImpostazioni(m){
+  const imp = await api('/impostazioni?anno='+S.anno);
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Impostazioni</h1><div class="sub">Aliquote, tipologie e tag</div></div>
+      <div class="filters" style="margin:0">${selettoreAnni()}</div>
+    </div>
+
+    <div class="split">
+      <div>
+        <div class="box">
+          <h3>Aliquote ${S.anno}</h3>
+          <div class="row">
+            <div class="field"><label>Stima imposte e contributi %</label>
+              <input type="number" step="0.5" id="aTasse" value="${imp.aliquota_tasse}"></div>
+            <div class="field"><label>Ritenuta d'acconto %</label>
+              <input type="number" step="0.5" id="aRit" value="${imp.aliquota_ritenuta}"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Rivalsa cassa %</label>
+              <input type="number" step="0.5" id="aCassa" value="${imp.aliquota_cassa}"></div>
+            <div class="field"><label>IVA %</label>
+              <input type="number" step="0.5" id="aIva" value="${imp.aliquota_iva}"></div>
+          </div>
+          <div class="sub" style="margin-bottom:12px">
+            La stima imposte si applica al margine, non ai ricavi. La ritenuta non entra nel margine:
+            è un anticipo IRPEF, già compreso nella stima.
+          </div>
+          <button class="btn btn-accent btn-sm" id="aSalva">Salva aliquote</button>
+        </div>
+
+        <div class="box" style="margin-top:16px">
+          <h3>Tipologie</h3>
+          <div id="listaTip"></div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <input type="text" id="tNuova" placeholder="Nuova tipologia">
+            <button class="btn btn-ghost btn-sm" id="tAggiungi">Aggiungi</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="box">
+          <h3>Tag</h3>
+          <div id="listaTag"></div>
+          <div style="display:flex;gap:8px;margin-top:12px">
+            <input type="text" id="gNuovo" placeholder="Nuovo tag">
+            <button class="btn btn-ghost btn-sm" id="gAggiungi">Aggiungi</button>
+          </div>
+        </div>
+
+        <div class="box" style="margin-top:16px">
+          <h3>Password</h3>
+          <div class="field"><label>Password attuale</label><input type="password" id="pOld"></div>
+          <div class="field"><label>Nuova password</label><input type="password" id="pNew"></div>
+          <button class="btn btn-ghost btn-sm" id="pSalva">Cambia password</button>
+        </div>
+      </div>
+    </div>
+  `;
+  legaAnno();
+
+  function disegnaTip(){
+    $('#listaTip').innerHTML = S.tipologie.map(t=>`
+      <div class="dl" style="align-items:center">
+        <span>${esc(t.nome)} <span class="dim">· ${t.usi} commesse</span></span>
+        <button class="btn btn-danger btn-sm" data-deltip="${t.id}">Elimina</button>
+      </div>`).join('') || '<div class="dim">Nessuna tipologia.</div>';
+    $('#listaTip').querySelectorAll('[data-deltip]').forEach(b=> b.onclick = async ()=>{
+      if(!confirm('Eliminare la tipologia? Le commesse collegate la perdono.')) return;
+      await api('/tipologie/'+b.dataset.deltip,{method:'DELETE'});
+      await caricaBase(); disegnaTip(); toast('Tipologia eliminata');
+    });
+  }
+  function disegnaTag(){
+    $('#listaTag').innerHTML = S.tags.map(t=>`
+      <div class="dl" style="align-items:center">
+        <span><span class="tagchip">${esc(t.nome)}</span> <span class="dim">${t.usi} documenti</span></span>
+        <button class="btn btn-danger btn-sm" data-deltag="${t.id}">Elimina</button>
+      </div>`).join('') || '<div class="dim">Nessun tag. Si creano scrivendoli sui documenti.</div>';
+    $('#listaTag').querySelectorAll('[data-deltag]').forEach(b=> b.onclick = async ()=>{
+      if(!confirm('Eliminare il tag?')) return;
+      await api('/tags/'+b.dataset.deltag,{method:'DELETE'});
+      await caricaBase(); disegnaTag(); toast('Tag eliminato');
+    });
+  }
+  disegnaTip(); disegnaTag();
+
+  $('#aSalva').onclick = async ()=>{
+    await api('/impostazioni',{method:'PUT',body:JSON.stringify({
+      anno:S.anno, aliquota_tasse:$('#aTasse').value, aliquota_ritenuta:$('#aRit').value,
+      aliquota_cassa:$('#aCassa').value, aliquota_iva:$('#aIva').value
+    })});
+    toast('Aliquote salvate');
+  };
+  $('#tAggiungi').onclick = async ()=>{
+    const nome = $('#tNuova').value.trim();
+    if(!nome) return;
+    try{
+      await api('/tipologie',{method:'POST',body:JSON.stringify({nome})});
+      $('#tNuova').value=''; await caricaBase(); disegnaTip(); toast('Tipologia aggiunta');
+    }catch(e){ toast(e.message, true); }
+  };
+  $('#gAggiungi').onclick = async ()=>{
+    const nome = $('#gNuovo').value.trim();
+    if(!nome) return;
+    await api('/tags',{method:'POST',body:JSON.stringify({nome})});
+    $('#gNuovo').value=''; await caricaBase(); disegnaTag(); toast('Tag aggiunto');
+  };
+  $('#pSalva').onclick = async ()=>{
+    try{
+      await api('/password',{method:'POST',body:JSON.stringify({
+        attuale:$('#pOld').value, nuova:$('#pNew').value
+      })});
+      $('#pOld').value=''; $('#pNew').value=''; toast('Password cambiata');
+    }catch(e){ toast(e.message, true); }
+  };
+}
+
+// ============================================================
+// AVVIO
+// ============================================================
+async function caricaBase(){
+  const [sog, tip, tag, inc] = await Promise.all([
+    api('/soggetti'), api('/tipologie'), api('/tags'), api('/incarichi')
+  ]);
+  S.soggetti = sog; S.tipologie = tip; S.tags = tag; S.incarichi = inc;
+}
+
+async function avvia(){
+  $('#login').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  $('#userEmail').textContent = S.user.email;
+  await caricaBase();
+  renderNav();
+  render();
+}
+
+(async ()=>{
+  try{
+    S.user = await api('/me');
+    avvia();
+  }catch(e){
+    $('#login').classList.remove('hidden');
+    $('#lEmail').focus();
+  }
+})();
+</script>
+</body>
+</html>
