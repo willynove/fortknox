@@ -249,10 +249,19 @@ const CAMPI_SOGGETTO = [
 app.post('/api/soggetti', wrap(async (req, res) => {
   const b = req.body;
   if (!b.denominazione) return res.status(400).json({ error: 'Denominazione obbligatoria' });
-  const valori = CAMPI_SOGGETTO.map((c) => (b[c] === undefined ? null : b[c]));
-  const ph = CAMPI_SOGGETTO.map((_, i) => `$${i + 1}`).join(', ');
+
+  // Si inseriscono solo i campi effettivamente forniti: un NULL esplicito
+  // scavalcherebbe il valore di default della colonna.
+  const cols = [];
+  const valori = [];
+  CAMPI_SOGGETTO.forEach((c) => {
+    if (b[c] === undefined || b[c] === '') return;
+    cols.push(c);
+    valori.push(b[c]);
+  });
+  const ph = cols.map((_, i) => `$${i + 1}`).join(', ');
   const { rows } = await db.query(
-    `INSERT INTO soggetti (${CAMPI_SOGGETTO.join(', ')}) VALUES (${ph}) RETURNING *`,
+    `INSERT INTO soggetti (${cols.join(', ')}) VALUES (${ph}) RETURNING *`,
     valori
   );
   res.json(rows[0]);
@@ -554,10 +563,16 @@ app.post('/api/incarichi', wrap(async (req, res) => {
   if (!b.soggetto_id || !b.titolo) {
     return res.status(400).json({ error: 'Cliente e titolo sono obbligatori' });
   }
-  const valori = CAMPI_INCARICO.map((c) => (b[c] === undefined || b[c] === '' ? null : b[c]));
-  const ph = CAMPI_INCARICO.map((_, i) => `$${i + 1}`).join(', ');
+  const cols = [];
+  const valori = [];
+  CAMPI_INCARICO.forEach((c) => {
+    if (b[c] === undefined || b[c] === '' || b[c] === null) return;
+    cols.push(c);
+    valori.push(b[c]);
+  });
+  const ph = cols.map((_, i) => `$${i + 1}`).join(', ');
   const { rows } = await db.query(
-    `INSERT INTO incarichi (${CAMPI_INCARICO.join(', ')}) VALUES (${ph}) RETURNING *`,
+    `INSERT INTO incarichi (${cols.join(', ')}) VALUES (${ph}) RETURNING *`,
     valori
   );
   await applicaTipologie(rows[0].id, b.tipologie);
