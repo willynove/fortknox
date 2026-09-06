@@ -336,6 +336,7 @@ const eur = (n)=> new Intl.NumberFormat('it-IT',{minimumFractionDigits:2,maximum
 const eur0 = (n)=> new Intl.NumberFormat('it-IT',{maximumFractionDigits:0}).format(Number(n)||0)+' €';
 const dt = (d)=> d ? new Date(d).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
 const oggi = ()=> new Date().toISOString().slice(0,10);
+const NOMI_MESI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 
 async function api(path, opts){
   opts = opts || {};
@@ -551,6 +552,49 @@ async function vistaRiepilogo(m){
       <div class="kpi"><div class="k">Costi extra</div><div class="v">${eur0(r.costi_extra)}</div>
         <div class="n">non deducibili, fuori dai calcoli fiscali</div></div>
     </div>
+
+    <h2>Andamento ${S.anno}</h2>
+    <div class="box">
+      ${(function(){
+        const maxV = Math.max(...r.mensile.map(x=>Math.max(x.ricavi, x.costi)), 1);
+        return `<div style="display:flex;align-items:flex-end;gap:8px;height:150px">
+          ${r.mensile.map(x=>`
+            <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px"
+                 title="${NOMI_MESI[x.mese-1]}: ricavi ${eur0(x.ricavi)}, costi ${eur0(x.costi)}">
+              <div style="width:100%;display:flex;gap:2px;align-items:flex-end;height:126px">
+                <div style="flex:1;background:var(--accent);height:${Math.round(Math.max(0,x.ricavi)/maxV*126)}px;border-radius:3px 3px 0 0"></div>
+                <div style="flex:1;background:var(--line);height:${Math.round(Math.max(0,x.costi)/maxV*126)}px;border-radius:3px 3px 0 0"></div>
+              </div>
+              <span style="font-size:10.5px;color:var(--muted)">${NOMI_MESI[x.mese-1]}</span>
+            </div>`).join('')}
+        </div>`;
+      })()}
+      <div class="sub" style="margin-top:10px">
+        <span style="display:inline-block;width:9px;height:9px;background:var(--accent);border-radius:2px"></span> ricavi
+        &nbsp; <span style="display:inline-block;width:9px;height:9px;background:var(--line);border-radius:2px"></span> costi
+      </div>
+    </div>
+
+    ${r.confronto.ricavi ? `
+    <div class="box" style="margin-top:12px">
+      <h3>Rispetto al ${r.confronto.anno}</h3>
+      <div class="row">
+        <div>
+          <div class="dl"><span>Ricavi ${r.confronto.anno}</span><span class="mono">${eur(r.confronto.ricavi)}</span></div>
+          <div class="dl"><span>Ricavi ${S.anno}</span><span class="mono">${eur(r.confronto.ricavi_periodo)}</span></div>
+          <div class="dl total"><span>Variazione</span>
+            <span class="mono ${r.confronto.variazione_ricavi<0?'neg':''}">
+              ${r.confronto.variazione_ricavi>0?'+':''}${r.confronto.variazione_ricavi}%</span></div>
+        </div>
+        <div>
+          <div class="dl"><span>Margine lordo ${r.confronto.anno}</span><span class="mono">${eur(r.confronto.margine_lordo)}</span></div>
+          <div class="dl"><span>Costi ${r.confronto.anno}</span><span class="mono">${eur(r.confronto.costi)}</span></div>
+        </div>
+      </div>
+      ${r.confronto.parziale ? `<div class="sub" style="margin-top:8px">
+        Confronto sullo stesso periodo: gennaio-${NOMI_MESI[r.confronto.mese_limite-1]} di entrambi gli anni.
+      </div>` : ''}
+    </div>` : ''}
 
     <h2>Commesse per compenso orario finale</h2>
     ${conOre.length ? `
@@ -1640,7 +1684,6 @@ async function vistaImpostazioni(m){
 // ============================================================
 // VISTA: COSTI
 // ============================================================
-const NOMI_MESI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
 
 async function vistaCosti(m){
   const c = await api('/costi?anno='+S.anno);
