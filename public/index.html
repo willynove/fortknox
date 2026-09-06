@@ -245,9 +245,10 @@ tbody tr.clickable:hover{background:var(--bg)}
 }
 
 .barra-sel{
-  position:sticky;bottom:0;z-index:40;margin-top:12px;
+  position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:70;
   background:var(--ink);color:#fff;border-radius:var(--r);padding:12px 16px;
   display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  box-shadow:0 6px 24px rgba(27,36,48,.28);max-width:min(920px,94vw);
 }
 .barra-sel .n{font-weight:700;white-space:nowrap}
 .barra-sel input[type=text]{background:#fff;border-color:transparent;min-width:150px;width:auto}
@@ -314,6 +315,7 @@ td.sel input,th.sel input{width:15px;height:15px;accent-color:var(--accent-deep)
 </div>
 
 <div id="modalHost"></div>
+<div id="barraHost"></div>
 
 <script>
 // ============================================================
@@ -348,6 +350,31 @@ async function api(path, opts){
   try { dati = testo ? JSON.parse(testo) : null; } catch(e){ dati = {error:testo}; }
   if(!r.ok) throw new Error((dati && dati.error) || 'Errore '+r.status);
   return dati;
+}
+
+// ---------- EXPORT CSV ----------
+// Separatore punto e virgola, virgola decimale e BOM: e' il formato che
+// Excel italiano apre senza chiedere niente.
+function csvCampo(v){
+  if(v === null || v === undefined) return '';
+  if(typeof v === 'number') return String(v).replace('.', ',');
+  const s = String(v);
+  return /[";\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+}
+
+function esportaCsv(nomeFile, intestazioni, righe){
+  if(!righe.length) return toast('Niente da esportare', true);
+  const testo = [intestazioni.join(';')]
+    .concat(righe.map(r=> r.map(csvCampo).join(';')))
+    .join('\r\n');
+  const blob = new Blob(['\uFEFF'+testo], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nomeFile.replace(/[^\w.-]+/g,'-') + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  toast(`Esportate ${righe.length} righe`);
 }
 
 let toastT;
@@ -447,6 +474,7 @@ function intestazioneStampa(titolo){
 
 async function render(){
   const m = $('#main');
+  const bh = $('#barraHost'); if(bh) bh.innerHTML = '';
   m.innerHTML = '<div class="empty">Caricamento…</div>';
   try{
     if(S.vista==='riepilogo') await vistaRiepilogo(m);
@@ -571,7 +599,10 @@ async function vistaCommesse(m){
   m.innerHTML = `
     <div class="head">
       <div><h1>Commesse</h1><div class="sub">${inc.length} risultati</div></div>
-      <button class="btn btn-accent" id="btnNuovaC">Nuova commessa</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btnCsvC">Esporta CSV</button>
+        <button class="btn btn-accent" id="btnNuovaC">Nuova commessa</button>
+      </div>
     </div>
     <div class="filters">
       <input type="text" id="fq" placeholder="Cerca…" value="${esc(S.filtriInc.q)}">
@@ -609,6 +640,16 @@ async function vistaCommesse(m){
   `;
 
   $('#btnNuovaC').onclick = ()=> formCommessa();
+  $('#btnCsvC').onclick = ()=> esportaCsv('commesse-'+S.anno,
+    ['Commessa','Cliente','Stato','Tipologie','Inizio','Fine','Ricavi','Costi diretti',
+     'Quota generali','Margine lordo','Margine netto','Costi extra','Margine finale',
+     'Ore','Ore previste','€/h fatturato','€/h netto','€/h finale'],
+    inc.map(i=>[i.titolo, i.cliente, i.stato,
+      (i.tipologie||[]).map(t=>t.nome).join(' · '),
+      i.data_inizio||'', i.data_fine||'',
+      i.ricavi, i.costi, i.costi_generali_quota, i.margine_lordo, i.margine_netto,
+      (i.costi_extra_diretti||0)+(i.costi_extra_quota||0), i.margine_finale,
+      i.ore, i.ore_previste||'', i.orario_fatturato, i.orario_netto, i.orario_finale]));
   m.querySelectorAll('[data-inc]').forEach(t=> t.onclick = ()=> apriCommessa(t.dataset.inc));
   const rif = ()=>{ 
     S.filtriInc.q = $('#fq').value;
@@ -969,7 +1010,10 @@ async function vistaDocumenti(m){
   m.innerHTML = `
     <div class="head">
       <div><h1>Documenti</h1><div class="sub">${docs.length} risultati · saldo ${eur0(tot)}</div></div>
-      <button class="btn btn-accent" id="btnNuovoD">Nuovo documento</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btnCsvD">Esporta CSV</button>
+        <button class="btn btn-accent" id="btnNuovoD">Nuovo documento</button>
+      </div>
     </div>
     <div class="filters">
       ${selettoreAnni()}
@@ -1012,8 +1056,7 @@ async function vistaDocumenti(m){
             : '<span class="dim">—</span>'}</td>
         </tr>`).join('')}
       </tbody>
-    </table></div>
-    <div id="barraSel"></div>` : `
+    </table></div>` : `
     <div class="panel"><div class="empty">
       <p>Nessun documento con questi filtri.</p>
       <button class="btn btn-accent btn-sm" onclick="formDocumento()">Inserisci il primo</button>
@@ -1021,6 +1064,14 @@ async function vistaDocumenti(m){
   `;
   legaAnno();
   $('#btnNuovoD').onclick = ()=> formDocumento();
+  $('#btnCsvD').onclick = ()=> esportaCsv('documenti-'+S.anno,
+    ['Direzione','Data','Numero','Tipo','Controparte','Commessa','Tag',
+     'Imponibile','IVA','Totale','Ritenuta','Scadenza','Incasso','Descrizione'],
+    docs.map(d=>[d.direzione, d.data, d.numero, d.tipo_documento, d.controparte,
+      d.incarico||'', (d.tags||[]).join(' '),
+      Number(d.imponibile)*d.segno, Number(d.imposta)*d.segno,
+      Number(d.totale_documento)*d.segno, Number(d.ritenuta_importo)*d.segno,
+      d.data_scadenza||'', d.data_incasso||'', d.descrizione||'']));
   m.querySelectorAll('[data-dir]').forEach(b=> b.onclick = ()=>{
     S.filtriDoc.direzione = b.dataset.dir; render();
   });
@@ -1048,14 +1099,10 @@ async function vistaDocumenti(m){
 
   function aggiornaBarra(){
     const n = scelti().length;
-    const box = $('#barraSel');
-    if(!box) return;
+    const box = $('#barraHost');
     if(!n){ box.innerHTML=''; return; }
-    if(box.dataset.aperta === '1'){
-      $('#bsN').textContent = n + (n===1?' documento':' documenti');
-      return;
-    }
-    box.dataset.aperta = '1';
+    const esistente = $('#bsN');
+    if(esistente){ esistente.textContent = n + (n===1?' documento':' documenti'); return; }
     box.innerHTML = `
       <div class="barra-sel">
         <span class="n" id="bsN">${n} document${n===1?'o':'i'}</span>
@@ -1071,7 +1118,7 @@ async function vistaDocumenti(m){
     $('#bsChiudi').onclick = ()=>{
       caselle().forEach(c=>c.checked=false);
       const st = $('#selTutti'); if(st) st.checked = false;
-      box.dataset.aperta=''; box.innerHTML='';
+      box.innerHTML='';
     };
     $('#bsApplica').onclick = async ()=>{
       const ids = scelti();
@@ -1259,6 +1306,7 @@ async function vistaAnagrafica(m){
       <div><h1>Anagrafica</h1><div class="sub">${S.soggetti.length} soggetti · metriche ${S.anno}</div></div>
       <div style="display:flex;gap:8px;align-items:center">
         ${selettoreAnni()}
+        <button class="btn btn-ghost" id="btnCsvA">Esporta CSV</button>
         <button class="btn btn-accent" id="btnNuovoS">Nuovo soggetto</button>
       </div>
     </div>
@@ -1292,6 +1340,12 @@ async function vistaAnagrafica(m){
   `;
   legaAnno();
   $('#btnNuovoS').onclick = ()=> formSoggetto();
+  $('#btnCsvA').onclick = ()=> esportaCsv('clienti-'+S.anno,
+    ['Cliente','Tipo','Sostituto d imposta','Ricavi','Peso %','Fatture','Commesse','Ore',
+     'Costi diretti','Margine finale','€/h finale','Giorni incasso','Da incassare'],
+    clienti.map(c=>[c.denominazione, c.tipo, c.sostituto_imposta?'si':'no',
+      c.ricavi, c.peso_ricavi, c.n_fatture, c.n_commesse, c.ore, c.costi,
+      c.margine_finale, c.orario_finale, c.giorni_incasso, c.da_incassare]));
   m.querySelectorAll('[data-sog]').forEach(t=> t.onclick = ()=>{
     if(t.dataset.cliente==='1') apriCliente(t.dataset.sog);
     else formSoggetto(S.soggetti.find(s=>s.id==t.dataset.sog));
@@ -1599,7 +1653,10 @@ async function vistaCosti(m){
     <div class="head">
       <div><h1>Costi ${S.anno}</h1>
         <div class="sub">Fatture ricevute e spese extra insieme</div></div>
-      <div class="filters" style="margin:0">${selettoreAnni()}</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${selettoreAnni()}
+        <button class="btn btn-ghost" id="btnCsvCosti">Esporta CSV</button>
+      </div>
     </div>
 
     <div class="kpi-grid">
@@ -1677,6 +1734,10 @@ async function vistaCosti(m){
     <div class="panel"><div class="empty"><p>Nessuna fattura ricevuta nel ${S.anno}.</p></div></div>`}
   `;
   legaAnno();
+  $('#btnCsvCosti').onclick = ()=> esportaCsv('costi-per-voce-'+S.anno,
+    ['Voce','Deducibili','Extra','Totale','Costo reale','Documenti'],
+    c.per_voce.map(v=>[v.voce, v.deducibili, v.extra, v.totale, v.costo_reale, v.n])
+      .concat(c.per_fornitore.map(f=>['[fornitore] '+f.denominazione, f.totale, 0, f.totale, '', f.n])));
 }
 
 // ============================================================
@@ -1693,6 +1754,7 @@ async function vistaExtra(m){
           si sottraggono dal margine già tassato.</div></div>
       <div style="display:flex;gap:8px;align-items:center">
         ${selettoreAnni()}
+        <button class="btn btn-ghost" id="btnCsvE">Esporta CSV</button>
         <button class="btn btn-accent" id="btnNuovoE">Nuova spesa</button>
       </div>
     </div>
@@ -1740,6 +1802,10 @@ async function vistaExtra(m){
     </div>
   `;
   legaAnno();
+  if($('#btnCsvE')) $('#btnCsvE').onclick = ()=> esportaCsv('costi-extra-'+S.anno,
+    ['Data','Descrizione','Categoria','Commessa','Importo','Note'],
+    d.voci.map(v=>[v.data, v.descrizione, v.categoria||'', v.incarico||'',
+      Number(v.importo), v.note||'']));
   const apri = ()=> formExtra();
   if($('#btnNuovoE')) $('#btnNuovoE').onclick = apri;
   if($('#btnPrimoE')) $('#btnPrimoE').onclick = apri;
@@ -1997,7 +2063,10 @@ async function vistaFisco(m){
     <div class="head">
       <div><h1>Fisco ${S.anno}</h1>
         <div class="sub">IVA per competenza sulla data di emissione, imposte stimate al ${f.aliquota_tasse}% sul margine</div></div>
-      <div class="filters" style="margin:0">${selettoreAnni()}</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${selettoreAnni()}
+        <button class="btn btn-ghost" id="btnCsvF">Esporta CSV</button>
+      </div>
     </div>
 
     <div class="kpi-grid">
@@ -2072,6 +2141,11 @@ async function vistaFisco(m){
     </div>
   `;
   legaAnno();
+  $('#btnCsvF').onclick = ()=> esportaCsv('iva-trimestrale-'+S.anno,
+    ['Trimestre','IVA a debito','IVA a credito','Saldo','Interessi','Da versare',
+     'Scadenza','Ricavi','Costi','Ritenute','Incassato'],
+    f.trimestri.map(t=>[t.trimestre+'° trimestre', t.debito, t.credito, t.saldo,
+      t.interessi, t.da_versare, t.scadenza, t.ricavi, t.costi, t.ritenute, t.incassato]));
 }
 
 // ============================================================
