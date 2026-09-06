@@ -242,6 +242,10 @@ tbody tr.clickable:hover{background:var(--bg)}
   .bar i{background:#666 !important}
   .panel[style*="overflow"]{max-height:none !important;overflow:visible !important}
   a{text-decoration:none;color:#000}
+
+  /* versione per il cliente: si nasconde tutto quello che riguarda
+     margini, costi e compensi orari */
+  body.per-cliente .riservato{display:none !important}
 }
 
 .barra-sel{
@@ -675,7 +679,11 @@ async function vistaCommesse(m){
           <td class="num mono">${eur0(i.ricavi)}</td>
           <td class="num mono">${eur0(i.costi + i.costi_generali_quota)}</td>
           <td class="num mono strong ${i.margine_netto<0?'neg':''}">${eur0(i.margine_netto)}</td>
-          <td class="num mono">${i.ore||'—'}</td>
+          <td class="num mono">${i.ore||'—'}${i.ore_previste?`
+            <div class="sub">su ${Number(i.ore_previste)}${
+              i.ore > Number(i.ore_previste) ? ' <span class="pill warn">sforato</span>'
+              : (i.ore >= Number(i.ore_previste)*0.8 ? ' <span class="pill">quasi</span>' : '')
+            }</div>`:''}</td>
           <td class="num mono">${i.orario_finale!=null?eur(i.orario_finale):'—'}</td>
         </tr>`).join('')}
       </tbody>
@@ -725,6 +733,7 @@ async function apriCommessa(id){
       <div style="display:flex;gap:8px">
         <button class="btn btn-danger" id="btnElimC">Elimina</button>
         <button class="btn btn-ghost" id="btnStampaC">Stampa</button>
+        <button class="btn btn-ghost" id="btnStampaCli">Stampa per il cliente</button>
         <button class="btn btn-ghost" id="btnModC">Modifica</button>
         <button class="btn btn-ghost" id="btnCollega">Collega documento</button>
         <button class="btn btn-accent" id="btnNuovoInt">Aggiungi intervento</button>
@@ -732,14 +741,14 @@ async function apriCommessa(id){
     </div>
 
     <div class="kpi-grid" style="margin-bottom:6px">
-      <div class="kpi lead"><div class="k">€/h finale</div>
+      <div class="kpi lead riservato"><div class="k">€/h finale</div>
         <div class="v">${mt.orario_finale!=null?eur(mt.orario_finale):'—'}</div>
         <div class="n">${mt.ore} ore · netto ${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</div></div>
       <div class="kpi"><div class="k">Ricavi</div><div class="v">${eur0(mt.ricavi)}</div>
-        <div class="n">${mt.orario_fatturato!=null?eur(mt.orario_fatturato)+'/h':'—'}</div></div>
-      <div class="kpi"><div class="k">Costi</div><div class="v">${eur0(mt.costi + mt.costi_generali_quota)}</div>
+        <div class="n">${mt.ore} ore lavorate</div></div>
+      <div class="kpi riservato"><div class="k">Costi</div><div class="v">${eur0(mt.costi + mt.costi_generali_quota)}</div>
         <div class="n">${eur0(mt.costi)} diretti, ${eur0(mt.costi_generali_quota)} di quota generali</div></div>
-      <div class="kpi"><div class="k">Margine netto</div>
+      <div class="kpi riservato"><div class="k">Margine netto</div>
         <div class="v ${mt.margine_netto<0?'neg':''}">${eur0(mt.margine_netto)}</div>
         <div class="n">lordo ${eur0(mt.margine_lordo)}, tasse ${eur0(mt.tasse_stimate)}</div></div>
     </div>
@@ -772,7 +781,7 @@ async function apriCommessa(id){
         <div class="panel"><table>
           <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th class="num">Imponibile</th><th>Incasso</th><th></th></tr></thead>
           <tbody>${d.documenti.map(x=>`
-            <tr><td class="dim mono">${dt(x.data)}</td>
+            <tr class="${x.direzione==='passiva'?'riservato':''}"><td class="dim mono">${dt(x.data)}</td>
               <td>${esc(x.numero)} ${x.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}</td>
               <td class="dim">${esc(x.controparte)}</td>
               <td class="num mono ${x.segno<0?'neg':''}">${eur0(x.imponibile*x.segno)}</td>
@@ -783,7 +792,7 @@ async function apriCommessa(id){
         <div class="panel"><div class="empty"><p>Nessun documento collegato.</p></div></div>`}
       </div>
 
-      <div class="box">
+      <div class="box riservato">
         <h3>Conto economico</h3>
         <div class="dl"><span>Ricavi</span><span class="mono">${eur(mt.ricavi)}</span></div>
         <div class="dl"><span>Costi diretti</span><span class="mono">− ${eur(mt.costi)}</span></div>
@@ -816,6 +825,12 @@ async function apriCommessa(id){
   intestazioneStampa(d.titolo + ' · ' + d.cliente);
   $('#btnModC').onclick = ()=> formCommessa(d);
   $('#btnStampaC').onclick = ()=> window.print();
+  $('#btnStampaCli').onclick = ()=>{
+    // la classe nasconde margini, costi e compensi solo durante la stampa
+    document.body.classList.add('per-cliente');
+    window.print();
+    setTimeout(()=> document.body.classList.remove('per-cliente'), 500);
+  };
   $('#btnNuovoInt').onclick = ()=> formIntervento(d.id);
   $('#btnCollega').onclick = ()=> cercaDocumento(d.id, d.titolo);
   m.querySelectorAll('[data-scoll]').forEach(b=> b.onclick = async ()=>{
