@@ -1150,6 +1150,98 @@ app.delete('/api/costi-extra/:id', wrap(async (req, res) => {
 }));
 
 // ============================================================
+// FISCO
+// IVA per competenza (data di emissione) e accantonamento imposte.
+// Il reverse charge non entra nel credito: l'IVA autofatturata
+// sta contemporaneamente a debito e a credito, effetto netto zero.
+// ============================================================
+
+const SCADENZE_IVA = {
+  1: { etichetta: '16 maggio', interessi: true },
+  2: { etichetta: '20 agosto', interessi: true },
+  3: { etichetta: '16 novembre', interessi: true },
+  4: { etichetta: '16 marzo dell\'anno dopo', interessi: false }
+};
+
+app.get('/api/fisco', wrap(async (req, res) => {
+  const anno = Number(req.query.anno) || new Date().getFullYear();
+  const al = await aliquote(anno);
+
+  const q = await db.query(`
+    SELECT
+      EXTRACT(QUARTER FROM data)::int AS trimestre,
+      COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN imposta * segno END), 0) AS debito,
+      COALESCE(SUM(CASE WHEN direzione = 'passiva' AND reverse_charge = FALSE
+                        THEN imposta * segno END), 0) AS credito,
+      COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN imponibile * segno END), 0) AS ricavi,
+      COALESCE(SUM(CASE WHEN direzione = 'passiva' THEN imponibile * segno END), 0) AS costi,
+      COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN ritenuta_importo * segno END), 0) AS ritenute
+    FROM documenti WHERE EXTRACT(YEAR FROM data) = $1
+    GROUP BY 1 ORDER BY 1`, [anno]);
+
+  // incassato per trimestre, in base alla data di incasso e non di emissione
+  const inc = await db.query(`
+    SELECT EXTRACT(QUARTER FROM data_incasso)::int AS trimestre,
+           COALESCE(SUM((totale_documento - ritenuta_importo) * segno), 0) AS incassato
+    FROM documenti
+    WHERE direzione = 'attiva' AND data_incasso IS NOT NULL
+      AND EXTRACT(YEAR FROM data_incasso) = $1
+    GROUP BY 1`, [anno]);
+
+  const trimestri = [1, 2, 3, 4].map((n) => {
+    const r = q.rows.find((x) => x.trimestre === n) || {};
+    const i = inc.rows.find((x) => x.trimestre === n) || {};
+    const debito = r2(Number(r.debito || 0));
+    const credito = r2(Number(r.credito || 0));
+    const saldo = r2(debito - credito);
+    const sc = SCADENZE_IVA[n];
+    return {
+      trimestre: n,
+      debito,
+      credito,
+      saldo,
+      // i versamenti trimestrali dei primi tre periodi scontano l'1% di interessi
+      interessi: sc.interessi && saldo > 0 ? r2(saldo * 0.01) : 0,
+      da_versare: r2(saldo + (sc.interessi && saldo > 0 ? saldo * 0.01 : 0)),
+      scadenza: sc.etichetta,
+      ricavi: r2(Number(r.ricavi || 0)),
+      costi: r2(Number(r.costi || 0)),
+      ritenute: r2(Number(r.ritenute || 0)),
+      incassato: r2(Number(i.incassato || 0))
+    };
+  });
+
+  const ricavi = trimestri.reduce((s, t) => s + t.ricavi, 0);
+  const costi = trimestri.reduce((s, t) => s + t.costi, 0);
+  const ritenute = trimestri.reduce((s, t) => s + t.ritenute, 0);
+  const lordo = r2(ricavi - costi);
+  const tasse = r2(lordo * al.aliquota_tasse / 100);
+
+  const extra = await db.query(
+    'SELECT COALESCE(SUM(importo),0) AS tot FROM costi_extra WHERE EXTRACT(YEAR FROM data) = $1',
+    [anno]
+  );
+
+  res.json({
+    anno,
+    aliquota_tasse: al.aliquota_tasse,
+    trimestri,
+    iva_totale: r2(trimestri.reduce((s, t) => s + t.saldo, 0)),
+    iva_da_versare: r2(trimestri.reduce((s, t) => s + t.da_versare, 0)),
+    ricavi: r2(ricavi),
+    costi: r2(costi),
+    margine_lordo: lordo,
+    tasse_stimate: tasse,
+    ritenute_subite: r2(ritenute),
+    // le ritenute sono acconto IRPEF gia' versato: si scalano dall'accantonamento
+    da_accantonare: r2(tasse - ritenute),
+    costi_extra: r2(Number(extra.rows[0].tot)),
+    impegno_totale: r2(Math.max(0, tasse - ritenute)
+      + trimestri.reduce((s, t) => s + Math.max(0, t.da_versare), 0))
+  });
+}));
+
+// ============================================================
 // ANALISI CLIENTI
 // Le quote di costi generali ed extra si attribuiscono al cliente
 // con lo stesso peso usato per le commesse: la sua fetta di fatturato.
