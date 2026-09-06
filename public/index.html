@@ -105,8 +105,9 @@ nav{display:flex;flex-direction:column;gap:2px;flex:1}
 .nav-item svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;flex-shrink:0}
 .nav-item:hover{background:var(--bg);color:var(--ink)}
 .nav-item.on{background:var(--accent-wash);color:var(--accent-deep);font-weight:600}
-.side-foot{border-top:1px solid var(--line-soft);padding-top:12px;font-size:12px;color:var(--muted)}
-.side-foot button{background:none;border:none;color:var(--muted);padding:4px 0;font-size:12px}
+.side-foot{border-top:1px solid var(--line-soft);padding-top:12px;font-size:12px;color:var(--muted);
+  display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.side-foot button{background:none;border:none;color:var(--muted);padding:4px 0;font-size:12px;text-align:left}
 .side-foot button:hover{color:var(--ink)}
 
 main{flex:1;min-width:0;padding:26px 30px 60px}
@@ -624,6 +625,7 @@ async function apriCommessa(id){
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-danger" id="btnElimC">Elimina</button>
+        <button class="btn btn-ghost" id="btnStampaC">Stampa</button>
         <button class="btn btn-ghost" id="btnModC">Modifica</button>
         <button class="btn btn-ghost" id="btnCollega">Collega documento</button>
         <button class="btn btn-accent" id="btnNuovoInt">Aggiungi intervento</button>
@@ -714,6 +716,7 @@ async function apriCommessa(id){
   $('#indietro').onclick = ()=> vai('commesse');
   intestazioneStampa(d.titolo + ' · ' + d.cliente);
   $('#btnModC').onclick = ()=> formCommessa(d);
+  $('#btnStampaC').onclick = ()=> window.print();
   $('#btnNuovoInt').onclick = ()=> formIntervento(d.id);
   $('#btnCollega').onclick = ()=> cercaDocumento(d.id, d.titolo);
   m.querySelectorAll('[data-scoll]').forEach(b=> b.onclick = async ()=>{
@@ -1235,7 +1238,10 @@ async function apriCliente(id){
           ${d.cliente.piva?' · '+esc(d.cliente.piva):''}
           ${!d.cliente.sostituto_imposta?' · <span class="pill warn">non sostituto d’imposta</span>':''}</div>
       </div>
-      <button class="btn btn-ghost" id="btnModS">Modifica anagrafica</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btnStampaS">Stampa</button>
+        <button class="btn btn-ghost" id="btnModS">Modifica anagrafica</button>
+      </div>
     </div>
 
     <div class="kpi-grid">
@@ -1319,6 +1325,7 @@ async function apriCliente(id){
   intestazioneStampa('Cliente · '+d.cliente.denominazione);
   $('#indietro').onclick = ()=> vai('anagrafica');
   $('#btnModS').onclick = ()=> formSoggetto(d.cliente);
+  $('#btnStampaS').onclick = ()=> window.print();
   m.querySelectorAll('[data-inc]').forEach(t=> t.onclick = ()=> apriCommessa(t.dataset.inc));
 }
 
