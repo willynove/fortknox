@@ -199,6 +199,50 @@ tbody tr.clickable:hover{background:var(--bg)}
 .autolist div{padding:7px 11px;font-size:13px;cursor:pointer}
 .autolist div:hover{background:var(--accent-wash)}
 
+/* ---------- STAMPA ---------- */
+.solo-stampa{display:none}
+
+@media print{
+  @page{ margin:14mm 12mm; }
+  html,body{background:#fff !important;font-size:10.5pt}
+  #app{display:block}
+  aside,.filters,.seg,#modalHost,.toast{display:none !important}
+  .btn,button{display:none !important}
+  main{padding:0 !important}
+
+  .solo-stampa{display:block;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #000}
+  .solo-stampa .t{font-size:15pt;font-weight:700;letter-spacing:-0.02em}
+  .solo-stampa .d{font-size:9pt;color:#555;margin-top:2px}
+
+  .head{margin-bottom:14px}
+  h1{font-size:14pt}
+  h2{font-size:11pt;margin:16px 0 8px;page-break-after:avoid}
+
+  /* i riquadri scuri diventano leggibili su carta */
+  .kpi.lead{background:#fff !important;border:1px solid #000 !important;color:#000 !important}
+  .kpi.lead .k,.kpi.lead .n{color:#555 !important}
+  .kpi.lead .v{color:#000 !important}
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .kpi{border:1px solid #bbb;padding:8px 10px;page-break-inside:avoid}
+  .kpi .v{font-size:13pt}
+  .kpi .k,.kpi .n{font-size:8pt}
+
+  .panel,.box{border:1px solid #bbb !important;page-break-inside:auto}
+  .split{display:grid;grid-template-columns:1.5fr 1fr;gap:12px}
+  .box{page-break-inside:avoid}
+
+  table{font-size:9pt}
+  thead{display:table-header-group}
+  tr{page-break-inside:avoid}
+  th{border-bottom:1px solid #000;padding:5px 8px}
+  td{padding:5px 8px;border-bottom:1px solid #ddd}
+
+  .pill,.tagchip{border:1px solid #bbb !important;background:#fff !important;color:#000 !important}
+  .bar i{background:#666 !important}
+  .panel[style*="overflow"]{max-height:none !important;overflow:visible !important}
+  a{text-decoration:none;color:#000}
+}
+
 @media (max-width:860px){
   #app{flex-direction:column}
   aside{width:100%;height:auto;position:static;flex-direction:row;align-items:center;
@@ -249,6 +293,7 @@ tbody tr.clickable:hover{background:var(--bg)}
     <nav id="nav"></nav>
     <div class="side-foot">
       <div id="userEmail"></div>
+      <button id="btnStampa">Stampa</button>
       <button id="btnLogout">Esci</button>
     </div>
   </aside>
@@ -338,6 +383,8 @@ $('#lBtn').onclick = login;
 $('#lPass').onkeydown = (e)=>{ if(e.key==='Enter') login(); };
 $('#lEmail').onkeydown = (e)=>{ if(e.key==='Enter') $('#lPass').focus(); };
 
+$('#btnStampa').onclick = ()=> window.print();
+
 $('#btnLogout').onclick = async ()=>{
   await api('/logout',{method:'POST'});
   location.reload();
@@ -370,6 +417,20 @@ function renderNav(){
 
 function vai(v){ S.vista = v; renderNav(); render(); }
 
+let TITOLO_STAMPA = '';
+
+function intestazioneStampa(titolo){
+  TITOLO_STAMPA = titolo || '';
+  const m = $('#main');
+  if(!m || m.querySelector('.solo-stampa')) return;
+  const oggi = new Date().toLocaleDateString('it-IT',{day:'2-digit',month:'long',year:'numeric'});
+  m.insertAdjacentHTML('afterbegin',
+    `<div class="solo-stampa">
+       <div class="t">Fort Knox${titolo?' · '+esc(titolo):''}</div>
+       <div class="d">Stampato il ${oggi}</div>
+     </div>`);
+}
+
 async function render(){
   const m = $('#main');
   m.innerHTML = '<div class="empty">Caricamento…</div>';
@@ -383,6 +444,8 @@ async function render(){
     else if(S.vista==='importa') await vistaImporta(m);
     else if(S.vista==='anagrafica') await vistaAnagrafica(m);
     else if(S.vista==='impostazioni') await vistaImpostazioni(m);
+    const v = VOCI.find(x=>x.id===S.vista);
+    intestazioneStampa(v ? v.t+' '+S.anno : '');
   }catch(e){
     m.innerHTML = `<div class="err-msg">${esc(e.message)}</div>`;
   }
@@ -649,6 +712,7 @@ async function apriCommessa(id){
     </div>
   `;
   $('#indietro').onclick = ()=> vai('commesse');
+  intestazioneStampa(d.titolo + ' · ' + d.cliente);
   $('#btnModC').onclick = ()=> formCommessa(d);
   $('#btnNuovoInt').onclick = ()=> formIntervento(d.id);
   $('#btnCollega').onclick = ()=> cercaDocumento(d.id, d.titolo);
