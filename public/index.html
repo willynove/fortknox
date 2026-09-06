@@ -350,6 +350,7 @@ const VOCI = [
   {id:'riepilogo', t:'Riepilogo', i:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>'},
   {id:'commesse',  t:'Commesse',  i:'<path d="M3 7h18v13H3zM8 7V4h8v3"/>'},
   {id:'documenti', t:'Documenti', i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
+  {id:'extra',     t:'Extra',     i:'<path d="M12 5v14M5 12h14"/>'},
   {id:'importa',   t:'Importa',   i:'<path d="M12 3v12M8 11l4 4 4-4M4 20h16"/>'},
   {id:'anagrafica',t:'Anagrafica',i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'},
   {id:'impostazioni',t:'Impostazioni',i:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'}
@@ -374,6 +375,7 @@ async function render(){
     if(S.vista==='riepilogo') await vistaRiepilogo(m);
     else if(S.vista==='commesse') await vistaCommesse(m);
     else if(S.vista==='documenti') await vistaDocumenti(m);
+    else if(S.vista==='extra') await vistaExtra(m);
     else if(S.vista==='importa') await vistaImporta(m);
     else if(S.vista==='anagrafica') await vistaAnagrafica(m);
     else if(S.vista==='impostazioni') await vistaImpostazioni(m);
@@ -428,6 +430,16 @@ async function vistaRiepilogo(m){
         <div class="n">${eur0(r.iva_debito)} a debito, ${eur0(r.iva_credito)} a credito</div></div>
       <div class="kpi"><div class="k">Da incassare</div><div class="v">${eur0(r.da_incassare)}</div>
         <div class="n">fatture senza data di incasso</div></div>
+    </div>
+
+    <div class="kpi-grid" style="margin-top:12px">
+      <div class="kpi lead"><div class="k">Resta davvero</div><div class="v">${eur0(r.resta_davvero)}</div>
+        <div class="n">margine netto meno ${eur0(r.costi_extra)} di costi extra</div></div>
+      <div class="kpi"><div class="k">Compenso orario finale</div>
+        <div class="v">${r.orario_finale!=null?eur(r.orario_finale):'—'}</div>
+        <div class="n">${r.ore_totali} ore registrate nell'anno</div></div>
+      <div class="kpi"><div class="k">Costi extra</div><div class="v">${eur0(r.costi_extra)}</div>
+        <div class="n">non deducibili, fuori dai calcoli fiscali</div></div>
     </div>
 
     <h2>Commesse per compenso orario netto</h2>
@@ -543,6 +555,7 @@ async function apriCommessa(id){
           ${d.tipologie.map(t=>`<span class="tagchip">${esc(t.nome)}</span>`).join(' ')}</div>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-danger" id="btnElimC">Elimina</button>
         <button class="btn btn-ghost" id="btnModC">Modifica</button>
         <button class="btn btn-accent" id="btnNuovoInt">Aggiungi intervento</button>
       </div>
@@ -606,9 +619,16 @@ async function apriCommessa(id){
         <div class="dl total"><span>Margine lordo</span><span class="mono">${eur(mt.margine_lordo)}</span></div>
         <div class="dl"><span>Tasse stimate (${mt.aliquota_tasse}%)</span><span class="mono">− ${eur(mt.tasse_stimate)}</span></div>
         <div class="dl total"><span>Margine netto</span><span class="mono">${eur(mt.margine_netto)}</span></div>
+        <div class="dl"><span>Quota costi extra</span><span class="mono">${mt.costi_extra_quota?'− '+eur(mt.costi_extra_quota):'—'}</span></div>
+        <div class="dl total"><span>Margine finale</span><span class="mono">${eur(mt.margine_finale)}</span></div>
+        <div class="sub" style="margin-top:6px">
+          La quota è la fetta dei costi extra ${mt.anno_riferimento} proporzionale ai ricavi
+          di questa commessa. Cambia ogni volta che ne aggiungi uno.
+        </div>
         <div class="dl" style="margin-top:10px"><span>€/h fatturato</span><span class="mono">${mt.orario_fatturato!=null?eur(mt.orario_fatturato):'—'}</span></div>
         <div class="dl"><span>€/h lordo</span><span class="mono">${mt.orario_lordo!=null?eur(mt.orario_lordo):'—'}</span></div>
-        <div class="dl"><span>€/h netto</span><span class="mono strong">${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</span></div>
+        <div class="dl"><span>€/h netto</span><span class="mono">${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</span></div>
+        <div class="dl"><span>€/h finale</span><span class="mono strong">${mt.orario_finale!=null?eur(mt.orario_finale):'—'}</span></div>
         ${d.descrizione?`<div style="margin-top:14px;font-size:13px;color:var(--ink-soft)">${esc(d.descrizione)}</div>`:''}
       </div>
     </div>
@@ -616,6 +636,20 @@ async function apriCommessa(id){
   $('#indietro').onclick = ()=> vai('commesse');
   $('#btnModC').onclick = ()=> formCommessa(d);
   $('#btnNuovoInt').onclick = ()=> formIntervento(d.id);
+  $('#btnElimC').onclick = async ()=>{
+    if(!confirm('Eliminare la commessa "'+d.titolo+'"?')) return;
+    try{
+      await api('/incarichi/'+d.id,{method:'DELETE'});
+      toast('Commessa eliminata'); await caricaBase(); vai('commesse');
+    }catch(err){
+      // il backend rifiuta se ci sono documenti collegati: si può forzare scollegandoli
+      const n = d.documenti.length;
+      if(!confirm(`Ci sono ${n} documenti collegati.\n\nProcedo scollegandoli? Le fatture restano, perdono solo il riferimento a questa commessa.`)) return;
+      await api('/incarichi/'+d.id+'?scollega=1',{method:'DELETE'});
+      toast(`Commessa eliminata, ${n} documenti scollegati`);
+      await caricaBase(); vai('commesse');
+    }
+  };
   m.querySelectorAll('[data-delint]').forEach(b=> b.onclick = async ()=>{
     if(!confirm('Eliminare questo intervento?')) return;
     await api('/interventi/'+b.dataset.delint,{method:'DELETE'});
@@ -1143,6 +1177,135 @@ async function vistaImpostazioni(m){
       })});
       $('#pOld').value=''; $('#pNew').value=''; toast('Password cambiata');
     }catch(e){ toast(e.message, true); }
+  };
+}
+
+// ============================================================
+// VISTA: EXTRA
+// ============================================================
+async function vistaExtra(m){
+  const d = await api('/costi-extra?anno='+S.anno);
+  const max = d.per_categoria.length ? Number(d.per_categoria[0].totale) : 0;
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Costi extra ${S.anno}</h1>
+        <div class="sub">Spese senza fattura e non deducibili. Non entrano in IVA, margini né imposte:
+          si sottraggono dal margine già tassato.</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${selettoreAnni()}
+        <button class="btn btn-accent" id="btnNuovoE">Nuova spesa</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid" style="margin-bottom:18px">
+      <div class="kpi lead"><div class="k">Totale ${S.anno}</div><div class="v">${eur0(d.totale)}</div>
+        <div class="n">${d.voci.length} voci</div></div>
+      <div class="kpi"><div class="k">Media mensile</div><div class="v">${eur0(d.totale/12)}</div>
+        <div class="n">sull'anno intero</div></div>
+    </div>
+
+    <div class="split">
+      <div>
+        ${d.voci.length ? `
+        <div class="panel"><table>
+          <thead><tr><th>Data</th><th>Descrizione</th><th>Categoria</th><th class="num">Importo</th><th></th></tr></thead>
+          <tbody>${d.voci.map(v=>`
+            <tr><td class="dim mono">${dt(v.data)}</td>
+              <td class="strong">${esc(v.descrizione)}${v.note?`<div class="sub">${esc(v.note)}</div>`:''}</td>
+              <td>${v.categoria?`<span class="tagchip">${esc(v.categoria)}</span>`:'<span class="dim">—</span>'}</td>
+              <td class="num mono strong">${eur(v.importo)}</td>
+              <td class="num" style="white-space:nowrap">
+                <button class="btn btn-ghost btn-sm" data-dup="${v.id}">Duplica</button>
+                <button class="btn btn-ghost btn-sm" data-mod="${v.id}">Modifica</button>
+                <button class="btn btn-danger btn-sm" data-del="${v.id}">Elimina</button>
+              </td></tr>`).join('')}
+          </tbody></table></div>` : `
+        <div class="panel"><div class="empty">
+          <p>Nessuna spesa registrata per il ${S.anno}.</p>
+          <button class="btn btn-accent btn-sm" id="btnPrimoE">Aggiungi la prima</button>
+        </div></div>`}
+      </div>
+
+      <div class="box">
+        <h3>Per categoria</h3>
+        ${d.per_categoria.length ? d.per_categoria.map(c=>`
+          <div style="margin-bottom:12px">
+            <div class="dl" style="padding:2px 0">
+              <span>${esc(c.categoria)} <span class="dim">· ${c.n}</span></span>
+              <span class="mono strong">${eur0(c.totale)}</span></div>
+            <div class="bar"><i style="width:${max?Math.round(c.totale/max*100):0}%"></i></div>
+          </div>`).join('') : '<div class="dim">Nessun dato.</div>'}
+      </div>
+    </div>
+  `;
+  legaAnno();
+  const apri = ()=> formExtra();
+  if($('#btnNuovoE')) $('#btnNuovoE').onclick = apri;
+  if($('#btnPrimoE')) $('#btnPrimoE').onclick = apri;
+
+  m.querySelectorAll('[data-dup]').forEach(b=> b.onclick = async ()=>{
+    const data = prompt('Data della nuova voce (AAAA-MM-GG)', oggi());
+    if(!data) return;
+    await api('/costi-extra/'+b.dataset.dup+'/duplica',{method:'POST',body:JSON.stringify({data})});
+    toast('Voce duplicata'); render();
+  });
+  m.querySelectorAll('[data-mod]').forEach(b=> b.onclick = ()=>{
+    formExtra(d.voci.find(v=>v.id==b.dataset.mod));
+  });
+  m.querySelectorAll('[data-del]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Eliminare questa voce?')) return;
+    await api('/costi-extra/'+b.dataset.del,{method:'DELETE'});
+    toast('Voce eliminata'); render();
+  });
+}
+
+async function formExtra(v){
+  const e = v||{};
+  const categorie = await api('/costi-extra/categorie');
+  modal(v?'Modifica spesa':'Nuova spesa', `
+    <div class="row">
+      <div class="field"><label>Data</label>
+        <input type="date" id="eData" value="${e.data?e.data.slice(0,10):oggi()}"></div>
+      <div class="field"><label>Importo</label>
+        <input type="number" step="0.01" id="eImp" value="${e.importo||''}"></div>
+    </div>
+    <div class="field"><label>Descrizione</label>
+      <input type="text" id="eDesc" value="${esc(e.descrizione||'')}" placeholder="Es. ricarica telefono"></div>
+    <div class="field" style="position:relative">
+      <label>Categoria</label>
+      <input type="text" id="eCat" autocomplete="off" value="${esc(e.categoria||'')}" placeholder="Es. telefonia">
+      <div id="eAuto" class="autolist hidden"></div>
+    </div>
+    <div class="field"><label>Note</label><textarea id="eNote">${esc(e.note||'')}</textarea></div>
+  `, `<button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
+      <button class="btn btn-accent" id="eSalva">Salva</button>`);
+
+  const inp = $('#eCat'), lista = $('#eAuto');
+  inp.oninput = ()=>{
+    const q = inp.value.toLowerCase().trim();
+    const f = q ? categorie.filter(c=>c.toLowerCase().includes(q)).slice(0,8) : categorie.slice(0,8);
+    if(!f.length){ lista.classList.add('hidden'); return; }
+    lista.innerHTML = f.map(c=>`<div data-c="${esc(c)}">${esc(c)}</div>`).join('');
+    lista.classList.remove('hidden');
+    lista.querySelectorAll('[data-c]').forEach(x=> x.onclick = ()=>{
+      inp.value = x.dataset.c; lista.classList.add('hidden');
+    });
+  };
+  inp.onfocus = inp.oninput;
+
+  $('#eSalva').onclick = async ()=>{
+    const body = {
+      data:$('#eData').value, importo:$('#eImp').value,
+      descrizione:$('#eDesc').value.trim(), categoria:$('#eCat').value.trim(),
+      note:$('#eNote').value
+    };
+    if(!body.descrizione || !Number(body.importo)) return toast('Servono descrizione e importo', true);
+    try{
+      v ? await api('/costi-extra/'+v.id,{method:'PUT',body:JSON.stringify(body)})
+        : await api('/costi-extra',{method:'POST',body:JSON.stringify(body)});
+      chiudiModal(); toast('Spesa salvata'); render();
+    }catch(err){ toast(err.message, true); }
   };
 }
 
