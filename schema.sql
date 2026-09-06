@@ -284,12 +284,18 @@ CREATE TABLE IF NOT EXISTS costi_extra (
   descrizione TEXT NOT NULL,
   importo     NUMERIC(14,2) NOT NULL CHECK (importo > 0),
   categoria   TEXT,
+  -- Se valorizzato il costo pesa solo su quella commessa ed esce dal
+  -- monte ripartito proporzionalmente, per non contarlo due volte.
+  incarico_id INTEGER REFERENCES incarichi(id) ON DELETE SET NULL,
   note        TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE costi_extra ADD COLUMN IF NOT EXISTS incarico_id INTEGER REFERENCES incarichi(id) ON DELETE SET NULL;
+
 CREATE INDEX IF NOT EXISTS idx_costi_extra_data ON costi_extra (data);
 CREATE INDEX IF NOT EXISTS idx_costi_extra_cat  ON costi_extra (lower(categoria));
+CREATE INDEX IF NOT EXISTS idx_costi_extra_inc  ON costi_extra (incarico_id);
 
 -- ------------------------------------------------------------
 -- LOG IMPORT
