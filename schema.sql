@@ -272,6 +272,26 @@ CREATE TABLE IF NOT EXISTS preventivo_tipologie (
 );
 
 -- ------------------------------------------------------------
+-- COSTI EXTRA
+-- Spese dell'attivita' senza fattura e non deducibili (ricariche
+-- telefoniche, acquisti minori). Restano fuori da margini, IVA e
+-- calcoli fiscali: si sottraggono solo dal margine gia' tassato.
+-- Tabella separata proprio per non poter finire nelle query dei documenti.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS costi_extra (
+  id          SERIAL PRIMARY KEY,
+  data        DATE NOT NULL DEFAULT CURRENT_DATE,
+  descrizione TEXT NOT NULL,
+  importo     NUMERIC(14,2) NOT NULL CHECK (importo > 0),
+  categoria   TEXT,
+  note        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_costi_extra_data ON costi_extra (data);
+CREATE INDEX IF NOT EXISTS idx_costi_extra_cat  ON costi_extra (lower(categoria));
+
+-- ------------------------------------------------------------
 -- LOG IMPORT
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS import_log (
