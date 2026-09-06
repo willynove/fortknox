@@ -1164,32 +1164,162 @@ function formDocumento(d){
 // VISTA: ANAGRAFICA
 // ============================================================
 async function vistaAnagrafica(m){
+  const clienti = await api('/clienti?anno='+S.anno);
+  const mappa = new Map(clienti.map(c=>[c.id, c]));
+  const conOre = clienti.filter(c=>c.orario_finale!=null);
+  const media = conOre.length ? conOre.reduce((s,c)=>s+c.orario_finale,0)/conOre.length : null;
+
   m.innerHTML = `
     <div class="head">
-      <div><h1>Anagrafica</h1><div class="sub">${S.soggetti.length} soggetti</div></div>
-      <button class="btn btn-accent" id="btnNuovoS">Nuovo soggetto</button>
+      <div><h1>Anagrafica</h1><div class="sub">${S.soggetti.length} soggetti · metriche ${S.anno}</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${selettoreAnni()}
+        <button class="btn btn-accent" id="btnNuovoS">Nuovo soggetto</button>
+      </div>
     </div>
     ${S.soggetti.length ? `
     <div class="panel"><table>
-      <thead><tr><th>Denominazione</th><th>P.IVA</th><th>Ruolo</th><th>Ritenuta</th><th>Tipo</th></tr></thead>
-      <tbody>${S.soggetti.map(s=>`
-        <tr class="clickable" data-sog="${s.id}">
-          <td class="strong">${esc(s.denominazione)}</td>
-          <td class="dim mono">${esc(s.piva||s.codice_fiscale||'—')}</td>
-          <td>${s.is_cliente?'<span class="pill good">cliente</span> ':''}${s.is_fornitore?'<span class="pill">fornitore</span>':''}</td>
-          <td>${s.is_cliente ? (s.sostituto_imposta?'<span class="dim">sì</span>':'<span class="pill warn">no</span>') : '<span class="dim">—</span>'}</td>
-          <td class="dim">${s.tipo==='pa'?'PA':'privato'}</td>
-        </tr>`).join('')}
-      </tbody></table></div>` : `
+      <thead><tr><th>Denominazione</th><th>Ruolo</th>
+        <th class="num">Ricavi ${S.anno}</th><th class="num">Ore</th>
+        <th class="num">€/h finale</th><th class="num">Incasso</th><th class="num">Da incassare</th></tr></thead>
+      <tbody>${S.soggetti.map(s=>{
+        const c = mappa.get(s.id);
+        return `<tr class="clickable" data-sog="${s.id}" data-cliente="${s.is_cliente?1:0}">
+          <td class="strong">${esc(s.denominazione)}
+            <div class="sub">${esc(s.piva||s.codice_fiscale||'')}</div></td>
+          <td>${s.is_cliente?'<span class="pill good">cliente</span> ':''}${s.is_fornitore?'<span class="pill">fornitore</span>':''}
+            ${s.is_cliente && !s.sostituto_imposta?'<span class="pill warn">no ritenuta</span>':''}</td>
+          <td class="num mono">${c&&c.ricavi?eur0(c.ricavi):'—'}</td>
+          <td class="num mono dim">${c&&c.ore?c.ore:'—'}</td>
+          <td class="num mono strong">${c&&c.orario_finale!=null
+            ? `<span class="pill ${media!=null&&c.orario_finale>=media?'good':''}">${eur(c.orario_finale)}</span>` : '—'}</td>
+          <td class="num mono dim">${c&&c.giorni_incasso!=null?c.giorni_incasso+' gg':'—'}</td>
+          <td class="num mono">${c&&c.da_incassare?eur0(c.da_incassare):'—'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>
+    ${media!=null?`<div class="sub" style="margin-top:8px">Media ${eur(media)} all'ora tra i clienti con ore registrate.</div>`:''}
+    ` : `
     <div class="panel"><div class="empty">
       <p>Nessun soggetto in anagrafica.<br>Servono i clienti prima di poter creare commesse.</p>
       <button class="btn btn-accent btn-sm" onclick="formSoggetto()">Aggiungi il primo</button>
     </div></div>`}
   `;
+  legaAnno();
   $('#btnNuovoS').onclick = ()=> formSoggetto();
   m.querySelectorAll('[data-sog]').forEach(t=> t.onclick = ()=>{
-    formSoggetto(S.soggetti.find(s=>s.id==t.dataset.sog));
+    if(t.dataset.cliente==='1') apriCliente(t.dataset.sog);
+    else formSoggetto(S.soggetti.find(s=>s.id==t.dataset.sog));
   });
+}
+
+// ---------- SCHEDA CLIENTE ----------
+async function apriCliente(id){
+  const [d, tutti] = await Promise.all([
+    api('/clienti/'+id+'?anno='+S.anno),
+    api('/clienti?anno='+S.anno)
+  ]);
+  const c = tutti.find(x=>x.id==id) || {};
+  const conOre = tutti.filter(x=>x.orario_finale!=null);
+  const media = conOre.length ? conOre.reduce((s,x)=>s+x.orario_finale,0)/conOre.length : null;
+  const maxAnno = Math.max(...d.storico.map(s=>s.ricavi), 1);
+  const scadute = d.fatture.filter(f=>!f.data_incasso);
+
+  const m = $('#main');
+  m.innerHTML = `
+    <div class="head">
+      <div>
+        <button class="btn-ghost btn btn-sm" id="indietro" style="margin-bottom:10px">← Anagrafica</button>
+        <h1>${esc(d.cliente.denominazione)}</h1>
+        <div class="sub">${d.cliente.tipo==='pa'?'Pubblica amministrazione':'Privato'}
+          ${d.cliente.piva?' · '+esc(d.cliente.piva):''}
+          ${!d.cliente.sostituto_imposta?' · <span class="pill warn">non sostituto d’imposta</span>':''}</div>
+      </div>
+      <button class="btn btn-ghost" id="btnModS">Modifica anagrafica</button>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi lead"><div class="k">€/h finale</div>
+        <div class="v">${c.orario_finale!=null?eur(c.orario_finale):'—'}</div>
+        <div class="n">${media!=null&&c.orario_finale!=null
+          ? (c.orario_finale>=media?'sopra':'sotto')+' la media di '+eur(media) : c.ore+' ore'}</div></div>
+      <div class="kpi"><div class="k">Ricavi ${S.anno}</div><div class="v">${eur0(c.ricavi||0)}</div>
+        <div class="n">${c.peso_ricavi||0}% del tuo fatturato</div></div>
+      <div class="kpi"><div class="k">Margine finale</div>
+        <div class="v ${c.margine_finale<0?'neg':''}">${eur0(c.margine_finale||0)}</div>
+        <div class="n">dopo costi, tasse e quote</div></div>
+      <div class="kpi"><div class="k">Giorni per pagare</div>
+        <div class="v">${c.giorni_incasso!=null?c.giorni_incasso:'—'}</div>
+        <div class="n">${c.giorni_incasso!=null?'media sulle fatture incassate':'nessuna fattura incassata'}</div></div>
+      <div class="kpi"><div class="k">Da incassare</div><div class="v">${eur0(c.da_incassare||0)}</div>
+        <div class="n">${scadute.length} fatture aperte</div></div>
+    </div>
+
+    ${d.storico.length>1 ? `
+    <h2>Andamento</h2>
+    <div class="panel"><table>
+      <thead><tr><th>Anno</th><th class="num">Ricavi</th><th class="num">Ore</th>
+        <th class="num">Margine finale</th><th class="num">€/h finale</th><th style="width:24%"></th></tr></thead>
+      <tbody>${d.storico.map(s=>`
+        <tr><td class="strong">${s.anno}</td>
+          <td class="num mono">${eur0(s.ricavi)}</td>
+          <td class="num mono dim">${s.ore||'—'}</td>
+          <td class="num mono ${s.margine_finale<0?'neg':''}">${eur0(s.margine_finale)}</td>
+          <td class="num mono strong">${s.orario_finale!=null?eur(s.orario_finale):'—'}</td>
+          <td><div class="bar"><i style="width:${Math.round(s.ricavi/maxAnno*100)}%"></i></div></td>
+        </tr>`).join('')}
+      </tbody></table></div>` : ''}
+
+    <div class="split" style="margin-top:16px">
+      <div>
+        <h2 style="margin-top:0">Commesse</h2>
+        ${d.commesse.length ? `
+        <div class="panel"><table>
+          <thead><tr><th>Commessa</th><th>Stato</th><th class="num">Ricavi</th><th class="num">Ore</th></tr></thead>
+          <tbody>${d.commesse.map(x=>`
+            <tr class="clickable" data-inc="${x.id}">
+              <td class="strong">${esc(x.titolo)}<div class="sub">${dt(x.data_inizio)}</div></td>
+              <td><span class="pill ${x.stato==='in_corso'?'good':''}">${x.stato.replace('_',' ')}</span></td>
+              <td class="num mono">${eur0(x.ricavi)}</td>
+              <td class="num mono dim">${x.ore||'—'}</td>
+            </tr>`).join('')}
+          </tbody></table></div>` : `
+        <div class="panel"><div class="empty"><p>Nessuna commessa.</p></div></div>`}
+
+        <h2>Fatture</h2>
+        <div class="panel" style="max-height:420px;overflow-y:auto"><table>
+          <thead><tr><th>Data</th><th>Numero</th><th class="num">Imponibile</th><th class="num">Giorni</th><th>Incasso</th></tr></thead>
+          <tbody>${d.fatture.map(f=>`
+            <tr><td class="dim mono">${dt(f.data)}</td>
+              <td>${esc(f.numero)} ${f.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}</td>
+              <td class="num mono ${f.segno<0?'neg':''}">${eur0(f.imponibile*f.segno)}</td>
+              <td class="num mono dim">${f.giorni!=null?f.giorni:'—'}</td>
+              <td>${f.data_incasso?`<span class="pill good">${dt(f.data_incasso)}</span>`:'<span class="pill warn">aperta</span>'}</td>
+            </tr>`).join('')}
+          </tbody></table></div>
+      </div>
+
+      <div class="box">
+        <h3>Conto economico ${S.anno}</h3>
+        <div class="dl"><span>Ricavi</span><span class="mono">${eur(c.ricavi||0)}</span></div>
+        <div class="dl"><span>Costi diretti</span><span class="mono">${c.costi?'− '+eur(c.costi):'—'}</span></div>
+        <div class="dl"><span>Quota costi generali</span><span class="mono">${c.costi_generali_quota?'− '+eur(c.costi_generali_quota):'—'}</span></div>
+        <div class="dl total"><span>Margine lordo</span><span class="mono">${eur(c.margine_lordo||0)}</span></div>
+        <div class="dl total"><span>Margine finale</span><span class="mono">${eur(c.margine_finale||0)}</span></div>
+        <div class="dl" style="margin-top:10px"><span>Incidenza costi</span>
+          <span class="mono">${c.incidenza_costi!=null?c.incidenza_costi+'%':'—'}</span></div>
+        <div class="dl"><span>Fatture ${S.anno}</span><span class="mono">${c.n_fatture||0}</span></div>
+        <div class="dl"><span>Ore lavorate</span><span class="mono">${c.ore||0}</span></div>
+        <div class="sub" style="margin-top:10px">
+          Un cliente che paga tardi vale meno di uno che paga subito, a parità di compenso orario.
+        </div>
+      </div>
+    </div>
+  `;
+  intestazioneStampa('Cliente · '+d.cliente.denominazione);
+  $('#indietro').onclick = ()=> vai('anagrafica');
+  $('#btnModS').onclick = ()=> formSoggetto(d.cliente);
+  m.querySelectorAll('[data-inc]').forEach(t=> t.onclick = ()=> apriCommessa(t.dataset.inc));
 }
 
 function formSoggetto(s){
