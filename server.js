@@ -1150,6 +1150,175 @@ app.delete('/api/costi-extra/:id', wrap(async (req, res) => {
 }));
 
 // ============================================================
+// ANALISI CLIENTI
+// Le quote di costi generali ed extra si attribuiscono al cliente
+// con lo stesso peso usato per le commesse: la sua fetta di fatturato.
+// ============================================================
+
+async function contestoAnno(anno) {
+  const al = await aliquote(anno);
+  const { rows } = await db.query(`
+    SELECT
+      (SELECT COALESCE(SUM(d.imponibile * d.segno * (
+         CASE WHEN d.incarico_id IS NOT NULL THEN 0
+              ELSE 1 - COALESCE((SELECT SUM(dr.percentuale)/100
+                                 FROM documento_ripartizioni dr
+                                 WHERE dr.documento_id = d.id), 0)
+         END)), 0)
+       FROM documenti d
+       WHERE d.direzione = 'passiva' AND EXTRACT(YEAR FROM d.data) = $1) AS generali,
+      (SELECT COALESCE(SUM(importo),0) FROM costi_extra
+        WHERE EXTRACT(YEAR FROM data) = $1 AND incarico_id IS NULL) AS extra,
+      (SELECT COALESCE(SUM(imponibile * segno),0) FROM documenti
+        WHERE direzione = 'attiva' AND EXTRACT(YEAR FROM data) = $1) AS ricavi
+  `, [anno]);
+  return {
+    aliquota: al.aliquota_tasse,
+    generali: Number(rows[0].generali),
+    extra: Number(rows[0].extra),
+    ricaviAnno: Number(rows[0].ricavi)
+  };
+}
+
+app.get('/api/clienti', wrap(async (req, res) => {
+  const anno = Number(req.query.anno) || new Date().getFullYear();
+  const ctx = await contestoAnno(anno);
+
+  const { rows } = await db.query(`
+    SELECT s.id, s.denominazione, s.tipo, s.sostituto_imposta,
+      COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
+        WHERE d.soggetto_id = s.id AND d.direzione = 'attiva'
+          AND EXTRACT(YEAR FROM d.data) = $1), 0) AS ricavi,
+      COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
+        WHERE d.soggetto_id = s.id AND d.direzione = 'attiva'), 0) AS ricavi_totali,
+      COALESCE((SELECT COUNT(*) FROM documenti d
+        WHERE d.soggetto_id = s.id AND d.direzione = 'attiva'
+          AND EXTRACT(YEAR FROM d.data) = $1), 0) AS n_fatture,
+      COALESCE((SELECT COUNT(*) FROM incarichi i WHERE i.soggetto_id = s.id), 0) AS n_commesse,
+      COALESCE((SELECT SUM(v.ore) FROM interventi v
+        JOIN incarichi i ON i.id = v.incarico_id
+        WHERE i.soggetto_id = s.id), 0) AS ore,
+      COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
+        JOIN incarichi i ON i.id = d.incarico_id
+        WHERE i.soggetto_id = s.id AND d.direzione = 'passiva'
+          AND EXTRACT(YEAR FROM d.data) = $1), 0) AS costi_diretti,
+      COALESCE((SELECT SUM(ce.importo) FROM costi_extra ce
+        JOIN incarichi i ON i.id = ce.incarico_id
+        WHERE i.soggetto_id = s.id AND EXTRACT(YEAR FROM ce.data) = $1), 0) AS extra_diretti,
+      (SELECT AVG(d.data_incasso - d.data) FROM documenti d
+        WHERE d.soggetto_id = s.id AND d.direzione = 'attiva'
+          AND d.data_incasso IS NOT NULL) AS giorni_incasso,
+      COALESCE((SELECT SUM((d.totale_documento - d.ritenuta_importo) * d.segno) FROM documenti d
+        WHERE d.soggetto_id = s.id AND d.direzione = 'attiva'
+          AND d.data_incasso IS NULL), 0) AS da_incassare
+    FROM soggetti s
+    WHERE s.is_cliente = TRUE
+    ORDER BY 5 DESC
+  `, [anno]);
+
+  res.json(rows.map((r) => {
+    const ricavi = Number(r.ricavi);
+    const costi = Number(r.costi_diretti);
+    const ore = Number(r.ore);
+    const peso = ctx.ricaviAnno > 0 ? ricavi / ctx.ricaviAnno : 0;
+    const generali = r2(ctx.generali * peso);
+    const lordo = r2(ricavi - costi - generali);
+    const netto = r2(lordo * (1 - ctx.aliquota / 100));
+    const finale = r2(netto - r2(ctx.extra * peso) - Number(r.extra_diretti));
+    return {
+      id: r.id,
+      denominazione: r.denominazione,
+      tipo: r.tipo,
+      sostituto_imposta: r.sostituto_imposta,
+      ricavi: r2(ricavi),
+      ricavi_totali: r2(Number(r.ricavi_totali)),
+      n_fatture: Number(r.n_fatture),
+      n_commesse: Number(r.n_commesse),
+      ore,
+      costi: r2(costi),
+      costi_generali_quota: generali,
+      peso_ricavi: r2(peso * 100),
+      margine_lordo: lordo,
+      margine_netto: netto,
+      margine_finale: finale,
+      incidenza_costi: ricavi > 0 ? r2(costi / ricavi * 100) : null,
+      orario_finale: ore > 0 ? r2(finale / ore) : null,
+      giorni_incasso: r.giorni_incasso === null ? null : Math.round(Number(r.giorni_incasso)),
+      da_incassare: r2(Number(r.da_incassare))
+    };
+  }));
+}));
+
+app.get('/api/clienti/:id', wrap(async (req, res) => {
+  const id = req.params.id;
+  const anno = Number(req.query.anno) || new Date().getFullYear();
+
+  const sog = await db.query('SELECT * FROM soggetti WHERE id = $1', [id]);
+  if (!sog.rows[0]) return res.status(404).json({ error: 'Cliente non trovato' });
+
+  const lista = await db.query(
+    `SELECT DISTINCT EXTRACT(YEAR FROM data)::int AS anno FROM documenti
+     WHERE soggetto_id = $1 AND direzione = 'attiva' ORDER BY 1 DESC`, [id]
+  );
+
+  // andamento per anno, con margine finale calcolato anno per anno
+  const storico = [];
+  for (const a of lista.rows.map((r) => r.anno)) {
+    const ctx = await contestoAnno(a);
+    const q = await db.query(`
+      SELECT
+        COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
+          WHERE d.soggetto_id = $1 AND d.direzione = 'attiva'
+            AND EXTRACT(YEAR FROM d.data) = $2), 0) AS ricavi,
+        COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
+          JOIN incarichi i ON i.id = d.incarico_id
+          WHERE i.soggetto_id = $1 AND d.direzione = 'passiva'
+            AND EXTRACT(YEAR FROM d.data) = $2), 0) AS costi,
+        COALESCE((SELECT SUM(v.ore) FROM interventi v
+          JOIN incarichi i ON i.id = v.incarico_id
+          WHERE i.soggetto_id = $1 AND EXTRACT(YEAR FROM v.data) = $2), 0) AS ore
+    `, [id, a]);
+    const ricavi = Number(q.rows[0].ricavi);
+    const costi = Number(q.rows[0].costi);
+    const ore = Number(q.rows[0].ore);
+    const peso = ctx.ricaviAnno > 0 ? ricavi / ctx.ricaviAnno : 0;
+    const lordo = r2(ricavi - costi - ctx.generali * peso);
+    const netto = r2(lordo * (1 - ctx.aliquota / 100));
+    const finale = r2(netto - ctx.extra * peso);
+    storico.push({
+      anno: a, ricavi: r2(ricavi), costi: r2(costi), ore: r2(ore),
+      margine_finale: finale, orario_finale: ore > 0 ? r2(finale / ore) : null
+    });
+  }
+
+  const commesse = await db.query(`
+    SELECT i.id, i.titolo, i.stato, i.data_inizio,
+      COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
+        WHERE d.incarico_id = i.id AND d.direzione = 'attiva'), 0) AS ricavi,
+      COALESCE((SELECT SUM(v.ore) FROM interventi v WHERE v.incarico_id = i.id), 0) AS ore
+    FROM incarichi i WHERE i.soggetto_id = $1
+    ORDER BY i.data_inizio DESC NULLS LAST`, [id]);
+
+  const fatture = await db.query(`
+    SELECT id, numero, data, tipo_documento, imponibile, totale_documento,
+           ritenuta_importo, segno, data_scadenza, data_incasso,
+           CASE WHEN data_incasso IS NOT NULL THEN data_incasso - data END AS giorni
+    FROM documenti
+    WHERE soggetto_id = $1 AND direzione = 'attiva'
+    ORDER BY data DESC LIMIT 60`, [id]);
+
+  res.json({
+    cliente: sog.rows[0],
+    anno,
+    storico,
+    commesse: commesse.rows.map((c) => ({
+      ...c, ricavi: r2(Number(c.ricavi)), ore: r2(Number(c.ore))
+    })),
+    fatture: fatture.rows
+  });
+}));
+
+// ============================================================
 // ANALISI COSTI
 // Unisce le fatture passive (deducibili) e i costi extra (non deducibili).
 // Il costo reale pesa i deducibili per il netto d'imposta: un costo
