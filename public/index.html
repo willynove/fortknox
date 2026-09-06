@@ -674,6 +674,49 @@ async function apriCommessa(id){
   });
 }
 
+// ---------- CAMPO COMMESSA CON RICERCA ----------
+// Con decine di commesse un menu a tendina e' inservibile: qui si digita
+// e la lista si filtra, ordinata alfabeticamente.
+function comboCommessaHTML(id, selezionata){
+  const c = S.incarichi.find(i=>i.id==selezionata);
+  return `<div style="position:relative">
+    <input type="hidden" id="${id}" value="${selezionata||''}">
+    <input type="text" id="${id}Q" autocomplete="off"
+      placeholder="Nessuna, cerca per collegarla"
+      value="${c?esc(c.titolo+' — '+c.cliente):''}">
+    <div id="${id}L" class="autolist hidden"></div>
+  </div>`;
+}
+
+function legaCombo(id){
+  const hid = $('#'+id), inp = $('#'+id+'Q'), lista = $('#'+id+'L');
+  const ordinate = [...S.incarichi].sort((a,b)=>
+    a.titolo.localeCompare(b.titolo,'it',{sensitivity:'base'}));
+
+  function mostra(){
+    const q = inp.value.toLowerCase().trim();
+    const f = (q ? ordinate.filter(i=>
+      (i.titolo+' '+i.cliente).toLowerCase().includes(q)) : ordinate).slice(0,40);
+    lista.innerHTML =
+      `<div data-v=""><span class="dim">Nessuna commessa</span></div>` +
+      f.map(i=>`<div data-v="${i.id}">${esc(i.titolo)}<div class="sub">${esc(i.cliente)}</div></div>`).join('');
+    lista.classList.remove('hidden');
+    lista.querySelectorAll('[data-v]').forEach(x=> x.onmousedown = ()=>{
+      hid.value = x.dataset.v;
+      const sel = S.incarichi.find(i=>i.id==x.dataset.v);
+      inp.value = sel ? sel.titolo+' — '+sel.cliente : '';
+      lista.classList.add('hidden');
+    });
+  }
+  inp.oninput = mostra;
+  inp.onfocus = mostra;
+  inp.onblur = ()=> setTimeout(()=>{
+    lista.classList.add('hidden');
+    // se il testo e' stato svuotato a mano, si toglie il collegamento
+    if(!inp.value.trim()) hid.value = '';
+  }, 150);
+}
+
 // ---------- COLLEGA UN DOCUMENTO ESISTENTE ----------
 function cercaDocumento(incaricoId, titoloCommessa){
   modal('Collega un documento a "'+titoloCommessa+'"', `
@@ -949,9 +992,8 @@ function formDocumento(d){
     <div class="check hidden" id="wrapFf"><input type="checkbox" id="dFf" ${e.fornitore_forfettario?'checked':''}><label for="dFf">Fornitore forfettario (nessuna IVA)</label></div>
 
     <div class="field"><label>Commessa</label>
-      <select id="dInc"><option value="">Nessuna</option>
-        ${S.incarichi.map(i=>`<option value="${i.id}" ${e.incarico_id==i.id?'selected':''}>${esc(i.titolo)} — ${esc(i.cliente)}</option>`).join('')}
-      </select></div>
+      ${comboCommessaHTML('dInc', e.incarico_id)}
+    </div>
 
     <div class="field"><label>Tag, separati da virgola</label>
       <input type="text" id="dTags" value="${esc((e.tags||[]).join(', '))}" placeholder="social, attrezzatura">
@@ -1021,6 +1063,7 @@ function formDocumento(d){
     $('#dTags').value = cur.join(', ');
   });
   modo();
+  legaCombo('dInc');
 
   $('#dSalva').onclick = async ()=>{
     const body = {
@@ -1449,9 +1492,7 @@ async function formExtra(v){
       <div id="eAuto" class="autolist hidden"></div>
     </div>
     <div class="field"><label>Commessa</label>
-      <select id="eInc"><option value="">Nessuna, si ripartisce su tutte</option>
-        ${S.incarichi.map(i=>`<option value="${i.id}" ${e.incarico_id==i.id?'selected':''}>${esc(i.titolo)} — ${esc(i.cliente)}</option>`).join('')}
-      </select>
+      ${comboCommessaHTML('eInc', e.incarico_id)}
       <div class="sub" style="margin-top:5px">
         Se scegli una commessa il costo pesa solo su quella ed esce dalla ripartizione proporzionale.
       </div>
@@ -1461,6 +1502,7 @@ async function formExtra(v){
       <button class="btn btn-accent" id="eSalva">Salva</button>`);
 
   const inp = $('#eCat'), lista = $('#eAuto');
+  legaCombo('eInc');
   inp.oninput = ()=>{
     const q = inp.value.toLowerCase().trim();
     const f = q ? categorie.filter(c=>c.toLowerCase().includes(q)).slice(0,8) : categorie.slice(0,8);
