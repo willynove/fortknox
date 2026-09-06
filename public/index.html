@@ -244,6 +244,18 @@ tbody tr.clickable:hover{background:var(--bg)}
   a{text-decoration:none;color:#000}
 }
 
+.barra-sel{
+  position:sticky;bottom:0;z-index:40;margin-top:12px;
+  background:var(--ink);color:#fff;border-radius:var(--r);padding:12px 16px;
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+}
+.barra-sel .n{font-weight:700;white-space:nowrap}
+.barra-sel input[type=text]{background:#fff;border-color:transparent;min-width:150px;width:auto}
+.barra-sel .chiudi{background:none;border:none;color:rgba(255,255,255,.6);font-size:18px;padding:0 4px}
+.barra-sel .chiudi:hover{color:#fff}
+td.sel,th.sel{width:34px;padding-right:0}
+td.sel input,th.sel input{width:15px;height:15px;accent-color:var(--accent-deep);cursor:pointer}
+
 @media (max-width:860px){
   #app{flex-direction:column}
   aside{width:100%;height:auto;position:static;flex-direction:row;align-items:center;
@@ -978,11 +990,13 @@ async function vistaDocumenti(m){
     ${docs.length ? `
     <div class="panel"><table>
       <thead><tr>
+        <th class="sel"><input type="checkbox" id="selTutti"></th>
         <th>Data</th><th>Numero</th><th>Controparte</th><th>Commessa</th><th>Tag</th>
         <th class="num">Imponibile</th><th class="num">IVA</th><th>Incasso</th>
       </tr></thead>
       <tbody>${docs.map(d=>`
         <tr class="clickable" data-doc="${d.id}">
+          <td class="sel"><input type="checkbox" class="selDoc" value="${d.id}"></td>
           <td class="dim mono">${dt(d.data)}</td>
           <td>${esc(d.numero)}
             ${d.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}
@@ -998,7 +1012,8 @@ async function vistaDocumenti(m){
             : '<span class="dim">—</span>'}</td>
         </tr>`).join('')}
       </tbody>
-    </table></div>` : `
+    </table></div>
+    <div id="barraSel"></div>` : `
     <div class="panel"><div class="empty">
       <p>Nessun documento con questi filtri.</p>
       <button class="btn btn-accent btn-sm" onclick="formDocumento()">Inserisci il primo</button>
@@ -1020,10 +1035,75 @@ async function vistaDocumenti(m){
     await api('/documenti/'+b.dataset.inc+'/incasso',{method:'POST',body:JSON.stringify({})});
     toast('Segnata come incassata'); render();
   });
-  m.querySelectorAll('[data-doc]').forEach(t=> t.onclick = async ()=>{
+  m.querySelectorAll('[data-doc]').forEach(t=> t.onclick = async (ev)=>{
+    // il click sulla casella seleziona, non apre il documento
+    if(ev.target.closest('.sel')) return;
     const d = await api('/documenti/'+t.dataset.doc);
     formDocumento(d);
   });
+
+  // ---- selezione multipla ----
+  const caselle = ()=> [...m.querySelectorAll('.selDoc')];
+  const scelti = ()=> caselle().filter(c=>c.checked).map(c=>Number(c.value));
+
+  function aggiornaBarra(){
+    const n = scelti().length;
+    const box = $('#barraSel');
+    if(!box) return;
+    if(!n){ box.innerHTML=''; return; }
+    if(box.dataset.aperta === '1'){
+      $('#bsN').textContent = n + (n===1?' documento':' documenti');
+      return;
+    }
+    box.dataset.aperta = '1';
+    box.innerHTML = `
+      <div class="barra-sel">
+        <span class="n" id="bsN">${n} document${n===1?'o':'i'}</span>
+        <div style="flex:1;min-width:180px">${comboCommessaHTML('bsInc','')}</div>
+        <input type="text" id="bsTag" placeholder="tag, separati da virgola">
+        <button class="btn btn-accent btn-sm" id="bsApplica">Applica</button>
+        <button class="btn btn-sm" id="bsScollega"
+          style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Scollega</button>
+        <button class="chiudi" id="bsChiudi">&times;</button>
+      </div>`;
+    legaCombo('bsInc');
+
+    $('#bsChiudi').onclick = ()=>{
+      caselle().forEach(c=>c.checked=false);
+      const st = $('#selTutti'); if(st) st.checked = false;
+      box.dataset.aperta=''; box.innerHTML='';
+    };
+    $('#bsApplica').onclick = async ()=>{
+      const ids = scelti();
+      const body = { ids };
+      const inc = $('#bsInc').value;
+      if(inc) body.incarico_id = inc;
+      const tags = $('#bsTag').value.split(',').map(x=>x.trim()).filter(Boolean);
+      if(tags.length) body.tags = tags;
+      if(!body.incarico_id && !body.tags) return toast('Scegli una commessa o dei tag', true);
+      try{
+        await api('/documenti/massivo',{method:'POST',body:JSON.stringify(body)});
+        toast(`Aggiornati ${ids.length} documenti`);
+        await caricaBase(); render();
+      }catch(e){ toast(e.message, true); }
+    };
+    $('#bsScollega').onclick = async ()=>{
+      const ids = scelti();
+      if(!confirm(`Togliere la commessa a ${ids.length} documenti?`)) return;
+      try{
+        await api('/documenti/massivo',{method:'POST',body:JSON.stringify({ids, incarico_id:''})});
+        toast(`Scollegati ${ids.length} documenti`);
+        await caricaBase(); render();
+      }catch(e){ toast(e.message, true); }
+    };
+  }
+
+  caselle().forEach(c=> c.onchange = aggiornaBarra);
+  const selTutti = $('#selTutti');
+  if(selTutti) selTutti.onchange = ()=>{
+    caselle().forEach(c=> c.checked = selTutti.checked);
+    aggiornaBarra();
+  };
 }
 
 // ---------- FORM DOCUMENTO ----------
