@@ -351,6 +351,7 @@ const VOCI = [
   {id:'commesse',  t:'Commesse',  i:'<path d="M3 7h18v13H3zM8 7V4h8v3"/>'},
   {id:'documenti', t:'Documenti', i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
   {id:'extra',     t:'Extra',     i:'<path d="M12 5v14M5 12h14"/>'},
+  {id:'preventivo',t:'Preventivo',i:'<path d="M7 3h10v18H7zM10 7h4M10 11h4M10 15h2"/>'},
   {id:'importa',   t:'Importa',   i:'<path d="M12 3v12M8 11l4 4 4-4M4 20h16"/>'},
   {id:'anagrafica',t:'Anagrafica',i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'},
   {id:'impostazioni',t:'Impostazioni',i:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'}
@@ -376,6 +377,7 @@ async function render(){
     else if(S.vista==='commesse') await vistaCommesse(m);
     else if(S.vista==='documenti') await vistaDocumenti(m);
     else if(S.vista==='extra') await vistaExtra(m);
+    else if(S.vista==='preventivo') await vistaPreventivo(m);
     else if(S.vista==='importa') await vistaImporta(m);
     else if(S.vista==='anagrafica') await vistaAnagrafica(m);
     else if(S.vista==='impostazioni') await vistaImpostazioni(m);
@@ -1307,6 +1309,176 @@ async function formExtra(v){
       chiudiModal(); toast('Spesa salvata'); render();
     }catch(err){ toast(err.message, true); }
   };
+}
+
+// ============================================================
+// VISTA: PREVENTIVO
+// Calcolatrice pura: non salva niente e non tocca il database.
+// ============================================================
+async function vistaPreventivo(m){
+  const al = await api('/impostazioni?anno='+S.anno);
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Preventivo</h1>
+        <div class="sub">Calcolatrice, non salva nulla. Aliquote ${S.anno}.</div></div>
+    </div>
+
+    <div class="seg" style="margin-bottom:18px">
+      <button id="pvDir" class="on">Dall'importo</button>
+      <button id="pvInv">Dal compenso orario</button>
+    </div>
+    <input type="hidden" id="pvModo" value="diretto">
+
+    <div class="split">
+      <div class="box">
+        <div id="pvCampi"></div>
+
+        <div class="row">
+          <div class="field"><label>Costi previsti</label>
+            <input type="number" step="10" id="pvCosti" value="0"></div>
+          <div class="field"><label>Stima imposte %</label>
+            <input type="number" step="0.5" id="pvTasse" value="${al.aliquota_tasse}"></div>
+        </div>
+
+        <div class="check"><input type="checkbox" id="pvIvaInc"><label for="pvIvaInc">L'importo comprende già l'IVA</label></div>
+        <div class="check"><input type="checkbox" id="pvRit" checked><label for="pvRit">Cliente sostituto d'imposta (applica ritenuta)</label></div>
+
+        <div class="sub" style="margin-top:10px">
+          La ritenuta non compare nel conto economico: è un anticipo IRPEF,
+          già compreso nella stima imposte. Sposta quando incassi, non quanto guadagni.
+        </div>
+      </div>
+
+      <div>
+        <div class="kpi-grid" style="margin-bottom:16px">
+          <div class="kpi lead"><div class="k" id="kTit">€/h netto</div>
+            <div class="v" id="kVal">—</div><div class="n" id="kNota"></div></div>
+        </div>
+
+        <div class="box" style="margin-bottom:16px">
+          <h3>Fattura</h3>
+          <div class="dl"><span>Prestazione</span><span class="mono" id="f1">—</span></div>
+          <div class="dl"><span>Cassa ${al.aliquota_cassa}%</span><span class="mono" id="f2">—</span></div>
+          <div class="dl total"><span>Imponibile</span><span class="mono" id="f3">—</span></div>
+          <div class="dl"><span>IVA ${al.aliquota_iva}%</span><span class="mono" id="f4">—</span></div>
+          <div class="dl total"><span>Totale fattura</span><span class="mono" id="f5">—</span></div>
+          <div class="dl"><span>Ritenuta ${al.aliquota_ritenuta}%</span><span class="mono" id="f6">—</span></div>
+          <div class="dl total"><span>Bonifico atteso</span><span class="mono" id="f7">—</span></div>
+        </div>
+
+        <div class="box">
+          <h3>Conto economico</h3>
+          <div class="dl"><span>Ricavo</span><span class="mono" id="c1">—</span></div>
+          <div class="dl"><span>Costi</span><span class="mono" id="c2">—</span></div>
+          <div class="dl total"><span>Margine lordo</span><span class="mono" id="c3">—</span></div>
+          <div class="dl"><span>Imposte stimate</span><span class="mono" id="c4">—</span></div>
+          <div class="dl total"><span>Margine netto</span><span class="mono" id="c5">—</span></div>
+          <div class="dl" style="margin-top:10px"><span>€/h fatturato</span><span class="mono" id="c6">—</span></div>
+          <div class="dl"><span>€/h lordo</span><span class="mono" id="c7">—</span></div>
+          <div class="dl"><span>€/h netto</span><span class="mono strong" id="c8">—</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const AL = {
+    cassa: Number(al.aliquota_cassa) || 4,
+    iva: Number(al.aliquota_iva) || 22,
+    rit: Number(al.aliquota_ritenuta) || 20
+  };
+
+  function disegnaCampi(){
+    const inv = $('#pvModo').value === 'inverso';
+    $('#pvCampi').innerHTML = inv ? `
+      <div class="row">
+        <div class="field"><label>€/h netto desiderato</label>
+          <input type="number" step="1" id="pvTarget" value="40"></div>
+        <div class="field"><label>Ore stimate</label>
+          <input type="number" step="0.5" id="pvOre" value="25"></div>
+      </div>` : `
+      <div class="row">
+        <div class="field"><label>Importo</label>
+          <input type="number" step="50" id="pvImporto" value="2000"></div>
+        <div class="field"><label>Ore stimate</label>
+          <input type="number" step="0.5" id="pvOre" value="25"></div>
+      </div>`;
+    $('#pvCampi').querySelectorAll('input').forEach(i=> i.oninput = calcola);
+  }
+
+  function calcola(){
+    const inv = $('#pvModo').value === 'inverso';
+    const costi = Number($('#pvCosti').value) || 0;
+    const aliqT = Number($('#pvTasse').value) || 0;
+    const ore = Number($('#pvOre').value) || 0;
+    const ivaInc = $('#pvIvaInc').checked;
+    const conRit = $('#pvRit').checked;
+
+    let imponibile;
+    if(inv){
+      // dal netto desiderato si risale all'imponibile da chiedere
+      const target = Number($('#pvTarget').value) || 0;
+      const netto = target * ore;
+      const lordo = aliqT >= 100 ? 0 : netto / (1 - aliqT/100);
+      imponibile = lordo + costi;
+    }else{
+      const imp = Number($('#pvImporto').value) || 0;
+      imponibile = ivaInc ? imp / (1 + AL.iva/100) : imp;
+    }
+
+    const prestazione = imponibile / (1 + AL.cassa/100);
+    const cassa = imponibile - prestazione;
+    const iva = imponibile * AL.iva/100;
+    const totale = imponibile + iva;
+    const rit = conRit ? imponibile * AL.rit/100 : 0;
+
+    const lordo = imponibile - costi;
+    const tasse = lordo * aliqT/100;
+    const netto = lordo - tasse;
+
+    $('#f1').textContent = eur(prestazione);
+    $('#f2').textContent = eur(cassa);
+    $('#f3').textContent = eur(imponibile);
+    $('#f4').textContent = eur(iva);
+    $('#f5').textContent = eur(totale);
+    $('#f6').textContent = rit ? '− '+eur(rit) : '—';
+    $('#f7').textContent = eur(totale - rit);
+
+    $('#c1').textContent = eur(imponibile);
+    $('#c2').textContent = '− '+eur(costi);
+    $('#c3').textContent = eur(lordo);
+    $('#c4').textContent = '− '+eur(tasse);
+    $('#c5').textContent = eur(netto);
+    $('#c6').textContent = ore>0 ? eur(imponibile/ore)+'/h' : '—';
+    $('#c7').textContent = ore>0 ? eur(lordo/ore)+'/h' : '—';
+    $('#c8').textContent = ore>0 ? eur(netto/ore)+'/h' : '—';
+
+    if(inv){
+      $('#kTit').textContent = 'Da chiedere al cliente';
+      $('#kVal').textContent = eur0(ivaInc ? totale : imponibile);
+      $('#kNota').textContent = ivaInc ? 'IVA inclusa' : 'IVA esclusa, '+eur0(totale)+' con IVA';
+    }else{
+      $('#kTit').textContent = '€/h netto';
+      $('#kVal').textContent = ore>0 ? eur(netto/ore) : '—';
+      $('#kNota').textContent = eur0(netto)+' di margine netto su '+ore+' ore';
+    }
+  }
+
+  $('#pvDir').onclick = ()=>{
+    $('#pvModo').value='diretto';
+    $('#pvDir').classList.add('on'); $('#pvInv').classList.remove('on');
+    disegnaCampi(); calcola();
+  };
+  $('#pvInv').onclick = ()=>{
+    $('#pvModo').value='inverso';
+    $('#pvInv').classList.add('on'); $('#pvDir').classList.remove('on');
+    disegnaCampi(); calcola();
+  };
+  ['pvCosti','pvTasse'].forEach(i=> $('#'+i).oninput = calcola);
+  ['pvIvaInc','pvRit'].forEach(i=> $('#'+i).onchange = calcola);
+
+  disegnaCampi();
+  calcola();
 }
 
 // ============================================================
