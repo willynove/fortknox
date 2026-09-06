@@ -1083,6 +1083,37 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
   );
   const ore = Number(oreQ.rows[0].ore);
 
+  // andamento mensile di ricavi e costi deducibili
+  const mens = await db.query(`
+    SELECT EXTRACT(MONTH FROM data)::int AS mese,
+      COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN imponibile * segno END), 0) AS ricavi,
+      COALESCE(SUM(CASE WHEN direzione = 'passiva' THEN imponibile * segno END), 0) AS costi
+    FROM documenti WHERE EXTRACT(YEAR FROM data) = $1
+    GROUP BY 1 ORDER BY 1`, [anno]);
+
+  const mensile = Array.from({ length: 12 }, (_, i) => {
+    const r = mens.rows.find((x) => x.mese === i + 1);
+    const rc = r ? r2(Number(r.ricavi)) : 0;
+    const cs = r ? r2(Number(r.costi)) : 0;
+    return { mese: i + 1, ricavi: rc, costi: cs, margine: r2(rc - cs) };
+  });
+
+  // stesso periodo dell'anno precedente, per un confronto onesto:
+  // a settembre non ha senso paragonare 9 mesi con 12
+  const oggi = new Date();
+  const meseLimite = (anno === oggi.getFullYear()) ? oggi.getMonth() + 1 : 12;
+  const prec = await db.query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN imponibile * segno END), 0) AS ricavi,
+      COALESCE(SUM(CASE WHEN direzione = 'passiva' THEN imponibile * segno END), 0) AS costi
+    FROM documenti
+    WHERE EXTRACT(YEAR FROM data) = $1 AND EXTRACT(MONTH FROM data) <= $2`,
+  [anno - 1, meseLimite]);
+
+  const precRicavi = r2(Number(prec.rows[0].ricavi));
+  const precCosti = r2(Number(prec.rows[0].costi));
+  const ricaviFinora = r2(mensile.slice(0, meseLimite).reduce((s, m) => s + m.ricavi, 0));
+
   res.json({
     anno,
     ricavi: r2(ricavi),
@@ -1100,7 +1131,19 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
     resta_davvero: restaDavvero,
     ore_totali: r2(ore),
     orario_finale: ore > 0 ? r2(restaDavvero / ore) : null,
-    aliquota_tasse: al.aliquota_tasse
+    aliquota_tasse: al.aliquota_tasse,
+    mensile,
+    confronto: {
+      anno: anno - 1,
+      mese_limite: meseLimite,
+      parziale: meseLimite < 12,
+      ricavi: precRicavi,
+      costi: precCosti,
+      margine_lordo: r2(precRicavi - precCosti),
+      ricavi_periodo: ricaviFinora,
+      variazione_ricavi: precRicavi > 0
+        ? r2((ricaviFinora - precRicavi) / precRicavi * 100) : null
+    }
   });
 }));
 
