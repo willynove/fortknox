@@ -350,6 +350,7 @@ const VOCI = [
   {id:'riepilogo', t:'Riepilogo', i:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>'},
   {id:'commesse',  t:'Commesse',  i:'<path d="M3 7h18v13H3zM8 7V4h8v3"/>'},
   {id:'documenti', t:'Documenti', i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
+  {id:'costi',     t:'Costi',     i:'<path d="M3 17l5-5 4 3 8-8M21 7h-5M21 7v5"/>'},
   {id:'extra',     t:'Extra',     i:'<path d="M12 5v14M5 12h14"/>'},
   {id:'preventivo',t:'Preventivo',i:'<path d="M7 3h10v18H7zM10 7h4M10 11h4M10 15h2"/>'},
   {id:'importa',   t:'Importa',   i:'<path d="M12 3v12M8 11l4 4 4-4M4 20h16"/>'},
@@ -376,6 +377,7 @@ async function render(){
     if(S.vista==='riepilogo') await vistaRiepilogo(m);
     else if(S.vista==='commesse') await vistaCommesse(m);
     else if(S.vista==='documenti') await vistaDocumenti(m);
+    else if(S.vista==='costi') await vistaCosti(m);
     else if(S.vista==='extra') await vistaExtra(m);
     else if(S.vista==='preventivo') await vistaPreventivo(m);
     else if(S.vista==='importa') await vistaImporta(m);
@@ -621,8 +623,14 @@ async function apriCommessa(id){
         <div class="dl total"><span>Margine lordo</span><span class="mono">${eur(mt.margine_lordo)}</span></div>
         <div class="dl"><span>Tasse stimate (${mt.aliquota_tasse}%)</span><span class="mono">− ${eur(mt.tasse_stimate)}</span></div>
         <div class="dl total"><span>Margine netto</span><span class="mono">${eur(mt.margine_netto)}</span></div>
+        <div class="dl"><span>Costi extra diretti</span><span class="mono">${mt.costi_extra_diretti?'− '+eur(mt.costi_extra_diretti):'—'}</span></div>
         <div class="dl"><span>Quota costi extra</span><span class="mono">${mt.costi_extra_quota?'− '+eur(mt.costi_extra_quota):'—'}</span></div>
         <div class="dl total"><span>Margine finale</span><span class="mono">${eur(mt.margine_finale)}</span></div>
+        ${(d.costi_extra||[]).length ? `
+        <div style="margin-top:10px">
+          ${d.costi_extra.map(x=>`<div class="dl" style="padding:3px 0;font-size:12.5px">
+            <span class="dim">${esc(x.descrizione)}</span><span class="mono dim">${eur(x.importo)}</span></div>`).join('')}
+        </div>` : ''}
         <div class="sub" style="margin-top:6px">
           La quota è la fetta dei costi extra ${mt.anno_riferimento} proporzionale ai ricavi
           di questa commessa. Cambia ogni volta che ne aggiungi uno.
@@ -1183,6 +1191,102 @@ async function vistaImpostazioni(m){
 }
 
 // ============================================================
+// VISTA: COSTI
+// ============================================================
+const NOMI_MESI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+
+async function vistaCosti(m){
+  const c = await api('/costi?anno='+S.anno);
+  const maxVoce = c.per_voce.length ? c.per_voce[0].totale : 0;
+  const maxMese = Math.max(...c.mensile.map(x=>x.deducibili+x.extra), 1);
+  const prec = c.anno_precedente;
+  const delta = prec.totale > 0 ? Math.round((c.totale-prec.totale)/prec.totale*100) : null;
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Costi ${S.anno}</h1>
+        <div class="sub">Fatture ricevute e spese extra insieme</div></div>
+      <div class="filters" style="margin:0">${selettoreAnni()}</div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi lead"><div class="k">Costo reale</div><div class="v">${eur0(c.costo_reale)}</div>
+        <div class="n">i deducibili pesano il ${Math.round(100-c.aliquota_tasse)}%, gli extra il 100%</div></div>
+      <div class="kpi"><div class="k">Deducibili</div><div class="v">${eur0(c.deducibili)}</div>
+        <div class="n">${eur0(c.iva_credito)} di IVA a credito</div></div>
+      <div class="kpi"><div class="k">Extra</div><div class="v">${eur0(c.extra)}</div>
+        <div class="n">senza fattura, non deducibili</div></div>
+      <div class="kpi"><div class="k">Incidenza sui ricavi</div>
+        <div class="v">${c.incidenza!=null?c.incidenza+'%':'—'}</div>
+        <div class="n">${eur0(c.totale)} su ${eur0(c.ricavi)}</div></div>
+      <div class="kpi"><div class="k">Rispetto al ${prec.anno}</div>
+        <div class="v">${delta!=null?(delta>0?'+':'')+delta+'%':'—'}</div>
+        <div class="n">${prec.totale?eur0(prec.totale):'nessun dato'}</div></div>
+    </div>
+
+    ${c.senza_tag.n ? `
+    <div class="err-msg" style="margin-top:16px;background:var(--accent-wash);color:var(--accent-deep)">
+      ${c.senza_tag.n} fatture per ${eur0(c.senza_tag.totale)} non hanno tag: non compaiono
+      nella ripartizione per voce qui sotto.
+    </div>` : ''}
+
+    <h2>Dove finiscono i soldi</h2>
+    ${c.per_voce.length ? `
+    <div class="panel"><table>
+      <thead><tr><th>Voce</th><th class="num">Deducibili</th><th class="num">Extra</th>
+        <th class="num">Totale</th><th class="num">Costo reale</th><th style="width:26%"></th></tr></thead>
+      <tbody>${c.per_voce.map(v=>`
+        <tr><td><span class="tagchip">${esc(v.voce)}</span> <span class="dim">${v.n}</span></td>
+          <td class="num mono">${v.deducibili?eur0(v.deducibili):'—'}</td>
+          <td class="num mono">${v.extra?eur0(v.extra):'—'}</td>
+          <td class="num mono strong">${eur0(v.totale)}</td>
+          <td class="num mono dim">${eur0(v.costo_reale)}</td>
+          <td><div class="bar"><i style="width:${maxVoce?Math.round(v.totale/maxVoce*100):0}%"></i></div></td>
+        </tr>`).join('')}
+      </tbody></table></div>` : `
+    <div class="panel"><div class="empty">
+      <p>Nessun costo classificato.<br>Assegna dei tag alle fatture ricevute per vedere questa ripartizione.</p>
+      <button class="btn btn-ghost btn-sm" onclick="vai('documenti')">Vai ai documenti</button>
+    </div></div>`}
+
+    <h2>Andamento mensile</h2>
+    <div class="box">
+      <div style="display:flex;align-items:flex-end;gap:6px;height:130px">
+        ${c.mensile.map(x=>{
+          const tot = x.deducibili+x.extra;
+          const h = Math.round(tot/maxMese*110);
+          const hd = tot>0 ? Math.round(h*x.deducibili/tot) : 0;
+          return `<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px"
+                       title="${NOMI_MESI[x.mese-1]}: ${eur0(tot)}">
+            <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:${h}px">
+              <div style="background:var(--accent);height:${h-hd}px;border-radius:3px 3px 0 0"></div>
+              <div style="background:var(--accent-deep);height:${hd}px"></div>
+            </div>
+            <span style="font-size:10.5px;color:var(--muted)">${NOMI_MESI[x.mese-1]}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="sub" style="margin-top:10px">
+        <span style="display:inline-block;width:9px;height:9px;background:var(--accent-deep);border-radius:2px"></span> deducibili
+        &nbsp; <span style="display:inline-block;width:9px;height:9px;background:var(--accent);border-radius:2px"></span> extra
+      </div>
+    </div>
+
+    <h2>Fornitori</h2>
+    ${c.per_fornitore.length ? `
+    <div class="panel" style="max-height:420px;overflow-y:auto"><table>
+      <thead><tr><th>Fornitore</th><th class="num">Fatture</th><th class="num">Totale</th></tr></thead>
+      <tbody>${c.per_fornitore.map(f=>`
+        <tr><td class="strong">${esc(f.denominazione)}</td>
+          <td class="num mono dim">${f.n}</td>
+          <td class="num mono strong">${eur0(f.totale)}</td></tr>`).join('')}
+      </tbody></table></div>` : `
+    <div class="panel"><div class="empty"><p>Nessuna fattura ricevuta nel ${S.anno}.</p></div></div>`}
+  `;
+  legaAnno();
+}
+
+// ============================================================
 // VISTA: EXTRA
 // ============================================================
 async function vistaExtra(m){
@@ -1211,11 +1315,12 @@ async function vistaExtra(m){
       <div>
         ${d.voci.length ? `
         <div class="panel"><table>
-          <thead><tr><th>Data</th><th>Descrizione</th><th>Categoria</th><th class="num">Importo</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Descrizione</th><th>Categoria</th><th>Commessa</th><th class="num">Importo</th><th></th></tr></thead>
           <tbody>${d.voci.map(v=>`
             <tr><td class="dim mono">${dt(v.data)}</td>
               <td class="strong">${esc(v.descrizione)}${v.note?`<div class="sub">${esc(v.note)}</div>`:''}</td>
               <td>${v.categoria?`<span class="tagchip">${esc(v.categoria)}</span>`:'<span class="dim">—</span>'}</td>
+              <td class="dim">${v.incarico?esc(v.incarico):'<span class="dim">ripartito</span>'}</td>
               <td class="num mono strong">${eur(v.importo)}</td>
               <td class="num" style="white-space:nowrap">
                 <button class="btn btn-ghost btn-sm" data-dup="${v.id}">Duplica</button>
@@ -1279,6 +1384,14 @@ async function formExtra(v){
       <input type="text" id="eCat" autocomplete="off" value="${esc(e.categoria||'')}" placeholder="Es. telefonia">
       <div id="eAuto" class="autolist hidden"></div>
     </div>
+    <div class="field"><label>Commessa</label>
+      <select id="eInc"><option value="">Nessuna, si ripartisce su tutte</option>
+        ${S.incarichi.map(i=>`<option value="${i.id}" ${e.incarico_id==i.id?'selected':''}>${esc(i.titolo)} — ${esc(i.cliente)}</option>`).join('')}
+      </select>
+      <div class="sub" style="margin-top:5px">
+        Se scegli una commessa il costo pesa solo su quella ed esce dalla ripartizione proporzionale.
+      </div>
+    </div>
     <div class="field"><label>Note</label><textarea id="eNote">${esc(e.note||'')}</textarea></div>
   `, `<button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
       <button class="btn btn-accent" id="eSalva">Salva</button>`);
@@ -1300,7 +1413,7 @@ async function formExtra(v){
     const body = {
       data:$('#eData').value, importo:$('#eImp').value,
       descrizione:$('#eDesc').value.trim(), categoria:$('#eCat').value.trim(),
-      note:$('#eNote').value
+      incarico_id:$('#eInc').value, note:$('#eNote').value
     };
     if(!body.descrizione || !Number(body.importo)) return toast('Servono descrizione e importo', true);
     try{
