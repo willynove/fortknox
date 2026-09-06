@@ -475,6 +475,20 @@ app.get('/api/incarichi', wrap(async (req, res) => {
   const anno = Number(req.query.anno) || new Date().getFullYear();
   const al = await aliquote(anno);
 
+  // Costi deducibili non attribuiti ad alcuna commessa: si ripartiscono
+  // in proporzione ai ricavi dell'anno. Di un costo ripartito solo in parte
+  // entra nel monte generale la sola quota residua.
+  const gen = await db.query(`
+    SELECT COALESCE(SUM(d.imponibile * d.segno * (
+      CASE WHEN d.incarico_id IS NOT NULL THEN 0
+           ELSE 1 - COALESCE((SELECT SUM(dr.percentuale)/100
+                              FROM documento_ripartizioni dr
+                              WHERE dr.documento_id = d.id), 0)
+      END)), 0) AS tot
+    FROM documenti d
+    WHERE d.direzione = 'passiva' AND EXTRACT(YEAR FROM d.data) = $1`, [anno]);
+  const generaliAnno = Number(gen.rows[0].tot);
+
   // Solo i costi extra non attribuiti a una commessa si ripartiscono:
   // quelli con incarico_id pesano direttamente su quella commessa.
   const ex = await db.query(
@@ -489,16 +503,18 @@ app.get('/api/incarichi', wrap(async (req, res) => {
     const ricavi = Number(r.ricavi);
     const costi = Number(r.costi_diretti) + Number(r.costi_ripartiti);
     const ore = Number(r.ore);
-    const lordo = r2(ricavi - costi);
+    const peso = ricaviAnno > 0 ? Number(r.ricavi_anno || 0) / ricaviAnno : 0;
+    const generali = r2(generaliAnno * peso);
+    const lordo = r2(ricavi - costi - generali);
     const netto = r2(lordo * (1 - al.aliquota_tasse / 100));
-    const quota = ricaviAnno > 0
-      ? r2(extraAnno * Number(r.ricavi_anno || 0) / ricaviAnno) : 0;
+    const quota = r2(extraAnno * peso);
     const diretti = r2(Number(r.extra_diretti || 0));
     const finale = r2(netto - quota - diretti);
     return {
       ...r,
       ricavi: r2(ricavi),
       costi: r2(costi),
+      costi_generali_quota: generali,
       margine_lordo: lordo,
       margine_netto: netto,
       costi_extra_diretti: diretti,
@@ -552,13 +568,19 @@ app.get('/api/incarichi/:id', wrap(async (req, res) => {
   const annoRif = Number(req.query.anno) || new Date().getFullYear();
   const al = await aliquote(annoRif);
   const costi = costiDiretti + costiRip;
-  const lordo = r2(ricavi - costi);
-  const netto = r2(lordo * (1 - al.aliquota_tasse / 100));
 
-  // quota dei costi extra dell'anno, in proporzione ai ricavi,
-  // piu' quelli attribuiti direttamente a questa commessa
+  // quote dell'anno: costi generali deducibili (prima delle tasse)
+  // e costi extra non deducibili (dopo), piu' gli extra diretti
   const exq = await db.query(`
     SELECT
+      (SELECT COALESCE(SUM(d.imponibile * d.segno * (
+         CASE WHEN d.incarico_id IS NOT NULL THEN 0
+              ELSE 1 - COALESCE((SELECT SUM(dr.percentuale)/100
+                                 FROM documento_ripartizioni dr
+                                 WHERE dr.documento_id = d.id), 0)
+         END)), 0)
+       FROM documenti d
+       WHERE d.direzione = 'passiva' AND EXTRACT(YEAR FROM d.data) = $1) AS generali,
       (SELECT COALESCE(SUM(importo),0) FROM costi_extra
         WHERE EXTRACT(YEAR FROM data) = $1 AND incarico_id IS NULL) AS extra,
       (SELECT COALESCE(SUM(importo),0) FROM costi_extra
@@ -570,8 +592,12 @@ app.get('/api/incarichi/:id', wrap(async (req, res) => {
           AND EXTRACT(YEAR FROM data) = $1) AS ricavi_inc
   `, [annoRif, id]);
   const e = exq.rows[0];
-  const quota = Number(e.ricavi_anno) > 0
-    ? r2(Number(e.extra) * Number(e.ricavi_inc) / Number(e.ricavi_anno)) : 0;
+  const peso = Number(e.ricavi_anno) > 0
+    ? Number(e.ricavi_inc) / Number(e.ricavi_anno) : 0;
+  const generali = r2(Number(e.generali) * peso);
+  const lordo = r2(ricavi - costi - generali);
+  const netto = r2(lordo * (1 - al.aliquota_tasse / 100));
+  const quota = r2(Number(e.extra) * peso);
   const diretti = r2(Number(e.extra_diretti));
   const finale = r2(netto - quota - diretti);
 
@@ -591,6 +617,8 @@ app.get('/api/incarichi/:id', wrap(async (req, res) => {
       costi: r2(costi),
       costi_diretti: r2(costiDiretti),
       costi_ripartiti: r2(costiRip),
+      costi_generali_quota: generali,
+      peso_ricavi: r2(peso * 100),
       margine_lordo: lordo,
       margine_netto: netto,
       tasse_stimate: r2(lordo - netto),
