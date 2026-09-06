@@ -980,6 +980,63 @@ app.post('/api/documenti/tag-massivo', wrap(async (req, res) => {
   res.json({ ok: true, documenti: ids.length, tags: tagIds.length });
 }));
 
+// Operazioni di massa: assegnazione commessa e tag su piu' documenti.
+// incarico_id assente = non toccare, stringa vuota = scollega.
+app.post('/api/documenti/massivo', wrap(async (req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'Nessun documento selezionato' });
+
+  const nomi = Array.isArray(req.body.tags) ? req.body.tags : [];
+  const sostituisci = !!req.body.sostituisci_tag;
+  const tocaIncarico = req.body.incarico_id !== undefined;
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (tocaIncarico) {
+      const inc = req.body.incarico_id === '' || req.body.incarico_id === null
+        ? null : Number(req.body.incarico_id);
+      await client.query(
+        'UPDATE documenti SET incarico_id = $1, updated_at = NOW() WHERE id = ANY($2)',
+        [inc, ids]
+      );
+    }
+
+    if (nomi.length || sostituisci) {
+      const tagIds = [];
+      for (const raw of nomi) {
+        const nome = normalizzaTag(raw);
+        if (!nome) continue;
+        const { rows } = await client.query(
+          `INSERT INTO tags (nome) VALUES ($1)
+           ON CONFLICT (nome) DO UPDATE SET nome = EXCLUDED.nome RETURNING id`, [nome]
+        );
+        tagIds.push(rows[0].id);
+      }
+      if (sostituisci) {
+        await client.query('DELETE FROM documento_tags WHERE documento_id = ANY($1)', [ids]);
+      }
+      for (const docId of ids) {
+        for (const tagId of tagIds) {
+          await client.query(
+            'INSERT INTO documento_tags (documento_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [docId, tagId]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, documenti: ids.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}));
+
 app.delete('/api/documenti/:id', wrap(async (req, res) => {
   await db.query('DELETE FROM documenti WHERE id = $1', [req.params.id]);
   res.json({ ok: true });
