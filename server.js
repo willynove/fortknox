@@ -1098,6 +1098,142 @@ app.delete('/api/costi-extra/:id', wrap(async (req, res) => {
 }));
 
 // ============================================================
+// ANALISI COSTI
+// Unisce le fatture passive (deducibili) e i costi extra (non deducibili).
+// Il costo reale pesa i deducibili per il netto d'imposta: un costo
+// scaricabile da 100 ne costa davvero 58 se la stima imposte e' il 42%.
+// ============================================================
+
+app.get('/api/costi', wrap(async (req, res) => {
+  const anno = Number(req.query.anno) || new Date().getFullYear();
+  const al = await aliquote(anno);
+  const fattore = 1 - al.aliquota_tasse / 100;
+
+  const tot = await db.query(`
+    SELECT
+      (SELECT COALESCE(SUM(imponibile * segno),0) FROM documenti
+        WHERE direzione = 'passiva' AND EXTRACT(YEAR FROM data) = $1) AS deducibili,
+      (SELECT COALESCE(SUM(imposta * segno),0) FROM documenti
+        WHERE direzione = 'passiva' AND reverse_charge = FALSE
+          AND EXTRACT(YEAR FROM data) = $1) AS iva_credito,
+      (SELECT COALESCE(SUM(importo),0) FROM costi_extra
+        WHERE EXTRACT(YEAR FROM data) = $1) AS extra,
+      (SELECT COALESCE(SUM(imponibile * segno),0) FROM documenti
+        WHERE direzione = 'attiva' AND EXTRACT(YEAR FROM data) = $1) AS ricavi
+  `, [anno]);
+  const t = tot.rows[0];
+  const deducibili = Number(t.deducibili);
+  const extra = Number(t.extra);
+  const ricavi = Number(t.ricavi);
+
+  // per tag: i documenti usano i tag, i costi extra la categoria
+  const perTagDoc = await db.query(`
+    SELECT t.nome AS voce, SUM(d.imponibile * d.segno) AS totale, COUNT(*) AS n
+    FROM documenti d
+    JOIN documento_tags dt ON dt.documento_id = d.id
+    JOIN tags t ON t.id = dt.tag_id
+    WHERE d.direzione = 'passiva' AND EXTRACT(YEAR FROM d.data) = $1
+    GROUP BY t.nome`, [anno]);
+
+  const perTagExtra = await db.query(`
+    SELECT lower(COALESCE(NULLIF(categoria,''),'senza categoria')) AS voce,
+           SUM(importo) AS totale, COUNT(*) AS n
+    FROM costi_extra WHERE EXTRACT(YEAR FROM data) = $1
+    GROUP BY 1`, [anno]);
+
+  const mappa = new Map();
+  const acc = (voce, campo, valore, n) => {
+    if (!mappa.has(voce)) mappa.set(voce, { voce, deducibili: 0, extra: 0, n: 0 });
+    const r = mappa.get(voce);
+    r[campo] += Number(valore);
+    r.n += Number(n);
+  };
+  perTagDoc.rows.forEach((r) => acc(r.voce, 'deducibili', r.totale, r.n));
+  perTagExtra.rows.forEach((r) => acc(r.voce, 'extra', r.totale, r.n));
+
+  const perVoce = [...mappa.values()].map((r) => ({
+    voce: r.voce,
+    deducibili: r2(r.deducibili),
+    extra: r2(r.extra),
+    totale: r2(r.deducibili + r.extra),
+    costo_reale: r2(r.deducibili * fattore + r.extra),
+    n: r.n
+  })).sort((a, b) => b.totale - a.totale);
+
+  // quota di costi passivi senza alcun tag
+  const senzaTag = await db.query(`
+    SELECT COALESCE(SUM(d.imponibile * d.segno),0) AS totale, COUNT(*) AS n
+    FROM documenti d
+    WHERE d.direzione = 'passiva' AND EXTRACT(YEAR FROM d.data) = $1
+      AND NOT EXISTS (SELECT 1 FROM documento_tags dt WHERE dt.documento_id = d.id)`, [anno]);
+
+  const perFornitore = await db.query(`
+    SELECT s.id, s.denominazione,
+           SUM(d.imponibile * d.segno) AS totale, COUNT(*) AS n
+    FROM documenti d JOIN soggetti s ON s.id = d.soggetto_id
+    WHERE d.direzione = 'passiva' AND EXTRACT(YEAR FROM d.data) = $1
+    GROUP BY s.id, s.denominazione ORDER BY 3 DESC`, [anno]);
+
+  const mensile = await db.query(`
+    SELECT mese,
+           COALESCE(SUM(deducibili),0) AS deducibili,
+           COALESCE(SUM(extra),0) AS extra
+    FROM (
+      SELECT EXTRACT(MONTH FROM data)::int AS mese,
+             imponibile * segno AS deducibili, 0 AS extra
+      FROM documenti WHERE direzione = 'passiva' AND EXTRACT(YEAR FROM data) = $1
+      UNION ALL
+      SELECT EXTRACT(MONTH FROM data)::int, 0, importo
+      FROM costi_extra WHERE EXTRACT(YEAR FROM data) = $1
+    ) x GROUP BY mese ORDER BY mese`, [anno]);
+
+  const mesi = Array.from({ length: 12 }, (_, i) => {
+    const r = mensile.rows.find((m) => Number(m.mese) === i + 1);
+    return {
+      mese: i + 1,
+      deducibili: r ? r2(Number(r.deducibili)) : 0,
+      extra: r ? r2(Number(r.extra)) : 0
+    };
+  });
+
+  // confronto con l'anno precedente
+  const prec = await db.query(`
+    SELECT
+      (SELECT COALESCE(SUM(imponibile * segno),0) FROM documenti
+        WHERE direzione = 'passiva' AND EXTRACT(YEAR FROM data) = $1) AS deducibili,
+      (SELECT COALESCE(SUM(importo),0) FROM costi_extra
+        WHERE EXTRACT(YEAR FROM data) = $1) AS extra
+  `, [anno - 1]);
+
+  res.json({
+    anno,
+    aliquota_tasse: al.aliquota_tasse,
+    deducibili: r2(deducibili),
+    extra: r2(extra),
+    totale: r2(deducibili + extra),
+    costo_reale: r2(deducibili * fattore + extra),
+    iva_credito: r2(Number(t.iva_credito)),
+    ricavi: r2(ricavi),
+    incidenza: ricavi > 0 ? r2((deducibili + extra) / ricavi * 100) : null,
+    senza_tag: {
+      totale: r2(Number(senzaTag.rows[0].totale)),
+      n: Number(senzaTag.rows[0].n)
+    },
+    per_voce: perVoce,
+    per_fornitore: perFornitore.rows.map((f) => ({
+      id: f.id, denominazione: f.denominazione, totale: r2(Number(f.totale)), n: Number(f.n)
+    })),
+    mensile: mesi,
+    anno_precedente: {
+      anno: anno - 1,
+      deducibili: r2(Number(prec.rows[0].deducibili)),
+      extra: r2(Number(prec.rows[0].extra)),
+      totale: r2(Number(prec.rows[0].deducibili) + Number(prec.rows[0].extra))
+    }
+  });
+}));
+
+// ============================================================
 // IMPORT FATTURE ELETTRONICHE
 // ============================================================
 
