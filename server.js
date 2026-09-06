@@ -441,10 +441,18 @@ app.get('/api/incarichi', wrap(async (req, res) => {
   }
   const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
 
+  // anno di riferimento per la ripartizione dei costi extra
+  const annoRif = Number(req.query.anno) || new Date().getFullYear();
+  par.push(annoRif);
+  const pAnno = '$' + par.length;
+
   const { rows } = await db.query(`
     SELECT i.*, s.denominazione AS cliente,
       COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
                 WHERE d.incarico_id = i.id AND d.direzione = 'attiva'), 0) AS ricavi,
+      COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
+                WHERE d.incarico_id = i.id AND d.direzione = 'attiva'
+                  AND EXTRACT(YEAR FROM d.data) = ${pAnno}), 0) AS ricavi_anno,
       COALESCE((SELECT SUM(d.imponibile * d.segno) FROM documenti d
                 WHERE d.incarico_id = i.id AND d.direzione = 'passiva'), 0) AS costi_diretti,
       COALESCE((SELECT SUM(d.imponibile * d.segno * dr.percentuale / 100)
@@ -464,21 +472,36 @@ app.get('/api/incarichi', wrap(async (req, res) => {
   const anno = Number(req.query.anno) || new Date().getFullYear();
   const al = await aliquote(anno);
 
+  // I costi extra non sono deducibili: si ripartiscono sulle commesse
+  // in proporzione ai ricavi dell'anno, dopo le tasse.
+  const ex = await db.query(
+    'SELECT COALESCE(SUM(importo),0) AS tot FROM costi_extra WHERE EXTRACT(YEAR FROM data) = $1',
+    [anno]
+  );
+  const extraAnno = Number(ex.rows[0].tot);
+  const ricaviAnno = rows.reduce((s, r) => s + Number(r.ricavi_anno || 0), 0);
+
   res.json(rows.map((r) => {
     const ricavi = Number(r.ricavi);
     const costi = Number(r.costi_diretti) + Number(r.costi_ripartiti);
     const ore = Number(r.ore);
     const lordo = r2(ricavi - costi);
     const netto = r2(lordo * (1 - al.aliquota_tasse / 100));
+    const quota = ricaviAnno > 0
+      ? r2(extraAnno * Number(r.ricavi_anno || 0) / ricaviAnno) : 0;
+    const finale = r2(netto - quota);
     return {
       ...r,
       ricavi: r2(ricavi),
       costi: r2(costi),
       margine_lordo: lordo,
       margine_netto: netto,
+      costi_extra_quota: quota,
+      margine_finale: finale,
       ore,
       orario_lordo: ore > 0 ? r2(lordo / ore) : null,
       orario_netto: ore > 0 ? r2(netto / ore) : null,
+      orario_finale: ore > 0 ? r2(finale / ore) : null,
       orario_fatturato: ore > 0 ? r2(ricavi / ore) : null
     };
   }));
@@ -520,10 +543,27 @@ app.get('/api/incarichi/:id', wrap(async (req, res) => {
     .reduce((s, d) => s + Number(d.imponibile) * d.segno * Number(d.percentuale) / 100, 0);
 
   const ore = int.rows.reduce((s, v) => s + Number(v.ore), 0);
-  const al = await aliquote(annoDi(inc.rows[0].data_inizio));
+  const annoRif = Number(req.query.anno) || new Date().getFullYear();
+  const al = await aliquote(annoRif);
   const costi = costiDiretti + costiRip;
   const lordo = r2(ricavi - costi);
   const netto = r2(lordo * (1 - al.aliquota_tasse / 100));
+
+  // quota dei costi extra dell'anno, in proporzione ai ricavi
+  const exq = await db.query(`
+    SELECT
+      (SELECT COALESCE(SUM(importo),0) FROM costi_extra
+        WHERE EXTRACT(YEAR FROM data) = $1) AS extra,
+      (SELECT COALESCE(SUM(imponibile * segno),0) FROM documenti
+        WHERE direzione = 'attiva' AND EXTRACT(YEAR FROM data) = $1) AS ricavi_anno,
+      (SELECT COALESCE(SUM(imponibile * segno),0) FROM documenti
+        WHERE direzione = 'attiva' AND incarico_id = $2
+          AND EXTRACT(YEAR FROM data) = $1) AS ricavi_inc
+  `, [annoRif, id]);
+  const e = exq.rows[0];
+  const quota = Number(e.ricavi_anno) > 0
+    ? r2(Number(e.extra) * Number(e.ricavi_inc) / Number(e.ricavi_anno)) : 0;
+  const finale = r2(netto - quota);
 
   res.json({
     ...inc.rows[0],
@@ -539,12 +579,16 @@ app.get('/api/incarichi/:id', wrap(async (req, res) => {
       margine_lordo: lordo,
       margine_netto: netto,
       tasse_stimate: r2(lordo - netto),
+      costi_extra_quota: quota,
+      margine_finale: finale,
+      anno_riferimento: annoRif,
       aliquota_tasse: al.aliquota_tasse,
       ore: r2(ore),
       ore_previste: inc.rows[0].ore_previste ? Number(inc.rows[0].ore_previste) : null,
       orario_fatturato: ore > 0 ? r2(ricavi / ore) : null,
       orario_lordo: ore > 0 ? r2(lordo / ore) : null,
-      orario_netto: ore > 0 ? r2(netto / ore) : null
+      orario_netto: ore > 0 ? r2(netto / ore) : null,
+      orario_finale: ore > 0 ? r2(finale / ore) : null
     }
   });
 }));
@@ -612,13 +656,21 @@ app.delete('/api/incarichi/:id', wrap(async (req, res) => {
   const { rows } = await db.query(
     'SELECT COUNT(*) AS n FROM documenti WHERE incarico_id = $1', [req.params.id]
   );
-  if (Number(rows[0].n)) {
+  const collegati = Number(rows[0].n);
+
+  // Con ?scollega=1 le fatture restano ma perdono il riferimento alla commessa:
+  // nessun importo sparisce, cambia solo l'attribuzione.
+  if (collegati && req.query.scollega !== '1') {
     return res.status(400).json({
-      error: `Non eliminabile: ha ${rows[0].n} documenti collegati. Scollegali prima.`
+      error: `Questa commessa ha ${collegati} documenti collegati.`,
+      documenti_collegati: collegati
     });
   }
+  if (collegati) {
+    await db.query('UPDATE documenti SET incarico_id = NULL WHERE incarico_id = $1', [req.params.id]);
+  }
   await db.query('DELETE FROM incarichi WHERE id = $1', [req.params.id]);
-  res.json({ ok: true });
+  res.json({ ok: true, scollegati: collegati });
 }));
 
 // ============================================================
@@ -915,13 +967,27 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
   const costi = Number(d.costi);
   const lordo = r2(ricavi - costi);
   const tasse = r2(lordo * al.aliquota_tasse / 100);
+  const netto = r2(lordo - tasse);
+
+  const extra = await db.query(
+    'SELECT COALESCE(SUM(importo),0) AS tot FROM costi_extra WHERE EXTRACT(YEAR FROM data) = $1',
+    [anno]
+  );
+  const costiExtra = r2(Number(extra.rows[0].tot));
+  const restaDavvero = r2(netto - costiExtra);
+
+  const oreQ = await db.query(
+    `SELECT COALESCE(SUM(ore),0) AS ore FROM interventi WHERE EXTRACT(YEAR FROM data) = $1`,
+    [anno]
+  );
+  const ore = Number(oreQ.rows[0].ore);
 
   res.json({
     anno,
     ricavi: r2(ricavi),
     costi: r2(costi),
     margine_lordo: lordo,
-    margine_netto: r2(lordo - tasse),
+    margine_netto: netto,
     tasse_stimate: tasse,
     ritenute_subite: r2(Number(d.ritenute)),
     da_accantonare: r2(tasse - Number(d.ritenute)),
@@ -929,8 +995,106 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
     iva_credito: r2(Number(d.iva_credito)),
     iva_saldo: r2(Number(d.iva_debito) - Number(d.iva_credito)),
     da_incassare: r2(Number(d.da_incassare)),
+    costi_extra: costiExtra,
+    resta_davvero: restaDavvero,
+    ore_totali: r2(ore),
+    orario_finale: ore > 0 ? r2(restaDavvero / ore) : null,
     aliquota_tasse: al.aliquota_tasse
   });
+}));
+
+// ============================================================
+// COSTI EXTRA
+// Spese non deducibili: restano fuori da IVA, margini e imposte.
+// ============================================================
+
+app.get('/api/costi-extra', wrap(async (req, res) => {
+  const cond = [];
+  const par = [];
+  if (req.query.anno) { par.push(Number(req.query.anno)); cond.push(`EXTRACT(YEAR FROM data) = $${par.length}`); }
+  if (req.query.categoria) { par.push(req.query.categoria); cond.push(`categoria = $${par.length}`); }
+  if (req.query.q) {
+    par.push('%' + String(req.query.q).toLowerCase() + '%');
+    cond.push(`(lower(descrizione) LIKE $${par.length} OR lower(categoria) LIKE $${par.length})`);
+  }
+  const where = cond.length ? 'WHERE ' + cond.join(' AND ') : '';
+  const { rows } = await db.query(
+    `SELECT * FROM costi_extra ${where} ORDER BY data DESC, id DESC`, par
+  );
+
+  const anno = Number(req.query.anno) || new Date().getFullYear();
+  const cat = await db.query(`
+    SELECT COALESCE(categoria, 'senza categoria') AS categoria,
+           SUM(importo) AS totale, COUNT(*) AS n
+    FROM costi_extra WHERE EXTRACT(YEAR FROM data) = $1
+    GROUP BY 1 ORDER BY 2 DESC`, [anno]);
+
+  res.json({
+    voci: rows,
+    totale: r2(rows.reduce((s, r) => s + Number(r.importo), 0)),
+    per_categoria: cat.rows.map((c) => ({
+      categoria: c.categoria, totale: r2(Number(c.totale)), n: Number(c.n)
+    }))
+  });
+}));
+
+app.get('/api/costi-extra/categorie', wrap(async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT categoria, COUNT(*) AS usi FROM costi_extra
+     WHERE categoria IS NOT NULL AND categoria <> ''
+     GROUP BY categoria ORDER BY usi DESC, categoria LIMIT 50`
+  );
+  res.json(rows.map((r) => r.categoria));
+}));
+
+app.post('/api/costi-extra', wrap(async (req, res) => {
+  const b = req.body;
+  if (!b.descrizione || !num(b.importo)) {
+    return res.status(400).json({ error: 'Descrizione e importo sono obbligatori' });
+  }
+  const { rows } = await db.query(
+    `INSERT INTO costi_extra (data, descrizione, importo, categoria, note)
+     VALUES (COALESCE($1, CURRENT_DATE), $2, $3, $4, $5) RETURNING *`,
+    [b.data || null, String(b.descrizione).trim(), num(b.importo),
+      b.categoria ? String(b.categoria).trim() : null, b.note || null]
+  );
+  res.json(rows[0]);
+}));
+
+// Duplica una voce cambiando solo la data: utile per le spese ricorrenti.
+app.post('/api/costi-extra/:id/duplica', wrap(async (req, res) => {
+  const { rows } = await db.query(
+    `INSERT INTO costi_extra (data, descrizione, importo, categoria, note)
+     SELECT COALESCE($2, CURRENT_DATE), descrizione, importo, categoria, note
+     FROM costi_extra WHERE id = $1 RETURNING *`,
+    [req.params.id, req.body.data || null]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Voce non trovata' });
+  res.json(rows[0]);
+}));
+
+app.put('/api/costi-extra/:id', wrap(async (req, res) => {
+  const b = req.body;
+  const { rows } = await db.query(
+    `UPDATE costi_extra SET
+       data = COALESCE($1, data),
+       descrizione = COALESCE($2, descrizione),
+       importo = COALESCE($3, importo),
+       categoria = COALESCE($4, categoria),
+       note = COALESCE($5, note)
+     WHERE id = $6 RETURNING *`,
+    [b.data || null, b.descrizione || null,
+      b.importo === undefined || b.importo === '' ? null : num(b.importo),
+      b.categoria === undefined ? null : b.categoria,
+      b.note === undefined ? null : b.note, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Voce non trovata' });
+  res.json(rows[0]);
+}));
+
+app.delete('/api/costi-extra/:id', wrap(async (req, res) => {
+  await db.query('DELETE FROM costi_extra WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // ============================================================
