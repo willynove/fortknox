@@ -409,10 +409,10 @@ async function vistaRiepilogo(m){
   ]);
   S.incarichi = inc;
 
-  const conOre = inc.filter(i=>i.orario_netto!=null)
-                    .sort((a,b)=> b.orario_netto - a.orario_netto);
+  const conOre = inc.filter(i=>i.orario_finale!=null)
+                    .sort((a,b)=> b.orario_finale - a.orario_finale);
   const media = conOre.length
-    ? conOre.reduce((s,i)=>s+i.orario_netto,0)/conOre.length : null;
+    ? conOre.reduce((s,i)=>s+i.orario_finale,0)/conOre.length : null;
 
   m.innerHTML = `
     <div class="head">
@@ -446,13 +446,13 @@ async function vistaRiepilogo(m){
         <div class="n">non deducibili, fuori dai calcoli fiscali</div></div>
     </div>
 
-    <h2>Commesse per compenso orario netto</h2>
+    <h2>Commesse per compenso orario finale</h2>
     ${conOre.length ? `
     <div class="panel"><table>
       <thead><tr>
         <th>Commessa</th><th>Cliente</th>
         <th class="num">Ricavi</th><th class="num">Ore</th>
-        <th class="num">€/h netto</th>
+        <th class="num">€/h finale</th>
       </tr></thead>
       <tbody>${conOre.map(i=>`
         <tr class="clickable" data-inc="${i.id}">
@@ -461,13 +461,14 @@ async function vistaRiepilogo(m){
           <td class="num mono">${eur0(i.ricavi)}</td>
           <td class="num mono">${i.ore}</td>
           <td class="num mono strong">
-            <span class="pill ${media!=null && i.orario_netto>=media ? 'good':''}">${eur(i.orario_netto)}</span>
+            <span class="pill ${media!=null && i.orario_finale>=media ? 'good':''}">${eur(i.orario_finale)}</span>
           </td>
         </tr>`).join('')}
       </tbody>
     </table></div>
     <div class="sub" style="margin-top:8px">
-      Media ${eur(media)} all'ora. ${inc.length-conOre.length} commesse senza ore registrate non compaiono qui.
+      Media ${eur(media)} all'ora, al netto di tasse, costi generali ed extra ripartiti.
+      ${inc.length-conOre.length} commesse senza ore registrate non compaiono qui.
     </div>` : `
     <div class="panel"><div class="empty">
       <p>Nessuna commessa ha ore registrate.<br>Il compenso orario si calcola dagli interventi.</p>
@@ -511,7 +512,7 @@ async function vistaCommesse(m){
       <thead><tr>
         <th>Commessa</th><th>Cliente</th><th>Stato</th>
         <th class="num">Ricavi</th><th class="num">Costi</th>
-        <th class="num">Margine netto</th><th class="num">Ore</th><th class="num">€/h netto</th>
+        <th class="num">Margine netto</th><th class="num">Ore</th><th class="num">€/h finale</th>
       </tr></thead>
       <tbody>${inc.map(i=>`
         <tr class="clickable" data-inc="${i.id}">
@@ -519,10 +520,10 @@ async function vistaCommesse(m){
           <td class="dim">${esc(i.cliente)}</td>
           <td><span class="pill ${i.stato==='in_corso'?'good':''}">${i.stato.replace('_',' ')}</span></td>
           <td class="num mono">${eur0(i.ricavi)}</td>
-          <td class="num mono">${eur0(i.costi)}</td>
+          <td class="num mono">${eur0(i.costi + i.costi_generali_quota)}</td>
           <td class="num mono strong ${i.margine_netto<0?'neg':''}">${eur0(i.margine_netto)}</td>
           <td class="num mono">${i.ore||'—'}</td>
-          <td class="num mono">${i.orario_netto!=null?eur(i.orario_netto):'—'}</td>
+          <td class="num mono">${i.orario_finale!=null?eur(i.orario_finale):'—'}</td>
         </tr>`).join('')}
       </tbody>
     </table></div>` : `
@@ -567,13 +568,13 @@ async function apriCommessa(id){
     </div>
 
     <div class="kpi-grid" style="margin-bottom:6px">
-      <div class="kpi lead"><div class="k">€/h netto</div>
-        <div class="v">${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</div>
-        <div class="n">${mt.ore} ore registrate</div></div>
+      <div class="kpi lead"><div class="k">€/h finale</div>
+        <div class="v">${mt.orario_finale!=null?eur(mt.orario_finale):'—'}</div>
+        <div class="n">${mt.ore} ore · netto ${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</div></div>
       <div class="kpi"><div class="k">Ricavi</div><div class="v">${eur0(mt.ricavi)}</div>
         <div class="n">${mt.orario_fatturato!=null?eur(mt.orario_fatturato)+'/h':'—'}</div></div>
-      <div class="kpi"><div class="k">Costi</div><div class="v">${eur0(mt.costi)}</div>
-        <div class="n">${eur0(mt.costi_diretti)} diretti, ${eur0(mt.costi_ripartiti)} ripartiti</div></div>
+      <div class="kpi"><div class="k">Costi</div><div class="v">${eur0(mt.costi + mt.costi_generali_quota)}</div>
+        <div class="n">${eur0(mt.costi)} diretti, ${eur0(mt.costi_generali_quota)} di quota generali</div></div>
       <div class="kpi"><div class="k">Margine netto</div>
         <div class="v ${mt.margine_netto<0?'neg':''}">${eur0(mt.margine_netto)}</div>
         <div class="n">lordo ${eur0(mt.margine_lordo)}, tasse ${eur0(mt.tasse_stimate)}</div></div>
@@ -621,7 +622,8 @@ async function apriCommessa(id){
       <div class="box">
         <h3>Conto economico</h3>
         <div class="dl"><span>Ricavi</span><span class="mono">${eur(mt.ricavi)}</span></div>
-        <div class="dl"><span>Costi</span><span class="mono">− ${eur(mt.costi)}</span></div>
+        <div class="dl"><span>Costi diretti</span><span class="mono">− ${eur(mt.costi)}</span></div>
+        <div class="dl"><span>Quota costi generali</span><span class="mono">${mt.costi_generali_quota?'− '+eur(mt.costi_generali_quota):'—'}</span></div>
         <div class="dl total"><span>Margine lordo</span><span class="mono">${eur(mt.margine_lordo)}</span></div>
         <div class="dl"><span>Tasse stimate (${mt.aliquota_tasse}%)</span><span class="mono">− ${eur(mt.tasse_stimate)}</span></div>
         <div class="dl total"><span>Margine netto</span><span class="mono">${eur(mt.margine_netto)}</span></div>
@@ -634,8 +636,9 @@ async function apriCommessa(id){
             <span class="dim">${esc(x.descrizione)}</span><span class="mono dim">${eur(x.importo)}</span></div>`).join('')}
         </div>` : ''}
         <div class="sub" style="margin-top:6px">
-          La quota è la fetta dei costi extra ${mt.anno_riferimento} proporzionale ai ricavi
-          di questa commessa. Cambia ogni volta che ne aggiungi uno.
+          Questa commessa pesa il ${mt.peso_ricavi}% sul fatturato ${mt.anno_riferimento}:
+          è la proporzione con cui si ripartiscono costi generali e costi extra.
+          I generali sono deducibili e scendono prima delle tasse, gli extra dopo.
         </div>
         <div class="dl" style="margin-top:10px"><span>€/h fatturato</span><span class="mono">${mt.orario_fatturato!=null?eur(mt.orario_fatturato):'—'}</span></div>
         <div class="dl"><span>€/h lordo</span><span class="mono">${mt.orario_lordo!=null?eur(mt.orario_lordo):'—'}</span></div>
