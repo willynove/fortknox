@@ -401,6 +401,7 @@ const VOCI = [
   {id:'costi',     t:'Costi',     i:'<path d="M3 17l5-5 4 3 8-8M21 7h-5M21 7v5"/>'},
   {id:'extra',     t:'Extra',     i:'<path d="M12 5v14M5 12h14"/>'},
   {id:'preventivo',t:'Preventivo',i:'<path d="M7 3h10v18H7zM10 7h4M10 11h4M10 15h2"/>'},
+  {id:'fisco',     t:'Fisco',      i:'<path d="M4 20h16M6 20V9l6-5 6 5v11M10 20v-6h4v6"/>'},
   {id:'importa',   t:'Importa',   i:'<path d="M12 3v12M8 11l4 4 4-4M4 20h16"/>'},
   {id:'anagrafica',t:'Anagrafica',i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'},
   {id:'impostazioni',t:'Impostazioni',i:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'}
@@ -442,6 +443,7 @@ async function render(){
     else if(S.vista==='costi') await vistaCosti(m);
     else if(S.vista==='extra') await vistaExtra(m);
     else if(S.vista==='preventivo') await vistaPreventivo(m);
+    else if(S.vista==='fisco') await vistaFisco(m);
     else if(S.vista==='importa') await vistaImporta(m);
     else if(S.vista==='anagrafica') await vistaAnagrafica(m);
     else if(S.vista==='impostazioni') await vistaImpostazioni(m);
@@ -1902,6 +1904,94 @@ async function vistaPreventivo(m){
 
   disegnaCampi();
   calcola();
+}
+
+// ============================================================
+// VISTA: FISCO
+// ============================================================
+async function vistaFisco(m){
+  const f = await api('/fisco?anno='+S.anno);
+  const attivi = f.trimestri.filter(t=>t.ricavi||t.costi);
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Fisco ${S.anno}</h1>
+        <div class="sub">IVA per competenza sulla data di emissione, imposte stimate al ${f.aliquota_tasse}% sul margine</div></div>
+      <div class="filters" style="margin:0">${selettoreAnni()}</div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi lead"><div class="k">Impegno totale</div><div class="v">${eur0(f.impegno_totale)}</div>
+        <div class="n">imposte da accantonare più IVA da versare</div></div>
+      <div class="kpi"><div class="k">Da accantonare</div><div class="v">${eur0(f.da_accantonare)}</div>
+        <div class="n">${eur0(f.tasse_stimate)} stimate meno ${eur0(f.ritenute_subite)} di ritenute</div></div>
+      <div class="kpi"><div class="k">IVA dell'anno</div><div class="v">${eur0(f.iva_da_versare)}</div>
+        <div class="n">saldo ${eur0(f.iva_totale)} più interessi trimestrali</div></div>
+      <div class="kpi"><div class="k">Margine lordo</div><div class="v">${eur0(f.margine_lordo)}</div>
+        <div class="n">${eur0(f.ricavi)} meno ${eur0(f.costi)}</div></div>
+    </div>
+
+    <h2>IVA per trimestre</h2>
+    <div class="panel"><table>
+      <thead><tr><th>Trimestre</th><th class="num">A debito</th><th class="num">A credito</th>
+        <th class="num">Saldo</th><th class="num">Interessi 1%</th><th class="num">Da versare</th>
+        <th>Scadenza</th><th class="num">Incassato</th></tr></thead>
+      <tbody>${f.trimestri.map(t=>`
+        <tr>
+          <td class="strong">${t.trimestre}° trimestre</td>
+          <td class="num mono">${t.debito?eur0(t.debito):'—'}</td>
+          <td class="num mono">${t.credito?eur0(t.credito):'—'}</td>
+          <td class="num mono ${t.saldo<0?'neg':''}">${eur0(t.saldo)}</td>
+          <td class="num mono dim">${t.interessi?eur(t.interessi):'—'}</td>
+          <td class="num mono strong">${t.da_versare>0?eur0(t.da_versare):'—'}</td>
+          <td class="dim">${t.scadenza}</td>
+          <td class="num mono ${t.da_versare>0 && t.incassato < t.da_versare ? 'neg':'dim'}">${t.incassato?eur0(t.incassato):'—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <div class="sub" style="margin-top:8px">
+      L'ultima colonna è quanto hai davvero incassato in quel trimestre. Se è più bassa dell'IVA
+      da versare, stai anticipando allo Stato soldi che i clienti non ti hanno ancora dato.
+      Un saldo negativo è credito che si porta al trimestre dopo.
+    </div>
+
+    <div class="split" style="margin-top:22px">
+      <div class="box">
+        <h3>Accantonamento imposte</h3>
+        <div class="dl"><span>Ricavi</span><span class="mono">${eur(f.ricavi)}</span></div>
+        <div class="dl"><span>Costi deducibili</span><span class="mono">− ${eur(f.costi)}</span></div>
+        <div class="dl total"><span>Margine lordo</span><span class="mono">${eur(f.margine_lordo)}</span></div>
+        <div class="dl"><span>Imposte stimate (${f.aliquota_tasse}%)</span><span class="mono">${eur(f.tasse_stimate)}</span></div>
+        <div class="dl"><span>Ritenute già subite</span><span class="mono">− ${eur(f.ritenute_subite)}</span></div>
+        <div class="dl total"><span>Ancora da mettere da parte</span><span class="mono">${eur(f.da_accantonare)}</span></div>
+        <div class="sub" style="margin-top:10px">
+          Le ritenute sono un anticipo IRPEF già versato dai tuoi clienti: si scalano
+          da quello che devi accantonare, non si sommano.
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>Andamento trimestrale</h3>
+        ${attivi.length ? attivi.map(t=>`
+          <div style="margin-bottom:14px">
+            <div class="dl" style="padding:2px 0">
+              <span>${t.trimestre}° trimestre</span>
+              <span class="mono strong">${eur0(t.da_versare)}</span></div>
+            <div class="bar"><i class="${t.da_versare>t.incassato?'over':''}"
+              style="width:${Math.min(100, Math.round(t.da_versare/Math.max(...f.trimestri.map(x=>x.da_versare),1)*100))}%"></i></div>
+            <div class="sub" style="margin-top:3px">incassato ${eur0(t.incassato)}</div>
+          </div>`).join('') : '<div class="dim">Nessun movimento nel ' + S.anno + '.</div>'}
+        <div class="sub">Le barre in rosso segnalano i trimestri in cui l'IVA da versare
+          supera quanto hai incassato.</div>
+      </div>
+    </div>
+
+    <div class="sub" style="margin-top:20px">
+      Sono stime per farsi un'idea, non un calcolo fiscale: le aliquote reali dipendono
+      da scaglioni, deduzioni e detrazioni che solo il commercialista conosce.
+    </div>
+  `;
+  legaAnno();
 }
 
 // ============================================================
