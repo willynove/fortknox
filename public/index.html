@@ -561,6 +561,7 @@ async function apriCommessa(id){
       <div style="display:flex;gap:8px">
         <button class="btn btn-danger" id="btnElimC">Elimina</button>
         <button class="btn btn-ghost" id="btnModC">Modifica</button>
+        <button class="btn btn-ghost" id="btnCollega">Collega documento</button>
         <button class="btn btn-accent" id="btnNuovoInt">Aggiungi intervento</button>
       </div>
     </div>
@@ -604,13 +605,14 @@ async function apriCommessa(id){
         <h2>Documenti</h2>
         ${d.documenti.length ? `
         <div class="panel"><table>
-          <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th class="num">Imponibile</th><th>Incasso</th></tr></thead>
+          <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th class="num">Imponibile</th><th>Incasso</th><th></th></tr></thead>
           <tbody>${d.documenti.map(x=>`
             <tr><td class="dim mono">${dt(x.data)}</td>
               <td>${esc(x.numero)} ${x.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}</td>
               <td class="dim">${esc(x.controparte)}</td>
               <td class="num mono ${x.segno<0?'neg':''}">${eur0(x.imponibile*x.segno)}</td>
               <td>${x.direzione==='attiva' ? (x.data_incasso?`<span class="pill good">${dt(x.data_incasso)}</span>`:'<span class="pill warn">da incassare</span>') : '<span class="dim">costo</span>'}</td>
+              <td class="num"><button class="btn btn-ghost btn-sm" data-scoll="${x.id}">Scollega</button></td>
             </tr>`).join('')}
           </tbody></table></div>` : `
         <div class="panel"><div class="empty"><p>Nessun documento collegato.</p></div></div>`}
@@ -646,6 +648,11 @@ async function apriCommessa(id){
   $('#indietro').onclick = ()=> vai('commesse');
   $('#btnModC').onclick = ()=> formCommessa(d);
   $('#btnNuovoInt').onclick = ()=> formIntervento(d.id);
+  $('#btnCollega').onclick = ()=> cercaDocumento(d.id, d.titolo);
+  m.querySelectorAll('[data-scoll]').forEach(b=> b.onclick = async ()=>{
+    await api('/documenti/'+b.dataset.scoll,{method:'PUT',body:JSON.stringify({incarico_id:''})});
+    toast('Documento scollegato'); apriCommessa(id);
+  });
   $('#btnElimC').onclick = async ()=>{
     if(!confirm('Eliminare la commessa "'+d.titolo+'"?')) return;
     try{
@@ -665,6 +672,63 @@ async function apriCommessa(id){
     await api('/interventi/'+b.dataset.delint,{method:'DELETE'});
     toast('Intervento eliminato'); apriCommessa(id);
   });
+}
+
+// ---------- COLLEGA UN DOCUMENTO ESISTENTE ----------
+function cercaDocumento(incaricoId, titoloCommessa){
+  modal('Collega un documento a "'+titoloCommessa+'"', `
+    <div class="seg" style="margin-bottom:14px">
+      <button id="cdTutti" class="on">Tutti</button>
+      <button id="cdAtt">Emesse</button>
+      <button id="cdPas">Ricevute</button>
+    </div>
+    <input type="hidden" id="cdDir" value="">
+    <div class="field">
+      <input type="text" id="cdQ" placeholder="Cerca per controparte, numero o descrizione…" autocomplete="off">
+    </div>
+    <div class="check"><input type="checkbox" id="cdLiberi" checked><label for="cdLiberi">Solo documenti non ancora collegati</label></div>
+    <div id="cdRis" style="max-height:340px;overflow-y:auto;margin-top:10px"></div>
+  `, `<button class="btn btn-ghost" onclick="chiudiModal()">Chiudi</button>`);
+
+  async function cerca(){
+    const q = new URLSearchParams();
+    if($('#cdQ').value.trim()) q.set('q', $('#cdQ').value.trim());
+    if($('#cdDir').value) q.set('direzione', $('#cdDir').value);
+    const box = $('#cdRis');
+    box.innerHTML = '<div class="dim" style="padding:14px">Ricerca…</div>';
+    try{
+      let docs = await api('/documenti?'+q.toString());
+      if($('#cdLiberi').checked) docs = docs.filter(x=>!x.incarico_id);
+      docs = docs.filter(x=> x.incarico_id != incaricoId).slice(0,60);
+      if(!docs.length){
+        box.innerHTML = '<div class="dim" style="padding:14px">Nessun documento trovato.</div>';
+        return;
+      }
+      box.innerHTML = `<div class="panel"><table><tbody>${docs.map(x=>`
+        <tr class="clickable" data-link="${x.id}">
+          <td class="dim mono" style="white-space:nowrap">${dt(x.data)}</td>
+          <td>${esc(x.numero)}<div class="sub">${esc(x.controparte)}</div></td>
+          <td class="num mono ${x.direzione==='passiva'?'neg':''}">${x.direzione==='passiva'?'− ':''}${eur0(x.imponibile)}</td>
+          <td class="dim">${x.incarico?esc(x.incarico):''}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+      box.querySelectorAll('[data-link]').forEach(r=> r.onclick = async ()=>{
+        await api('/documenti/'+r.dataset.link,{method:'PUT',body:JSON.stringify({incarico_id:incaricoId})});
+        chiudiModal(); toast('Documento collegato'); apriCommessa(incaricoId);
+      });
+    }catch(e){ box.innerHTML = `<div class="err-msg">${esc(e.message)}</div>`; }
+  }
+
+  const setDir = (v, on)=>{
+    $('#cdDir').value = v;
+    ['cdTutti','cdAtt','cdPas'].forEach(i=> $('#'+i).classList.toggle('on', i===on));
+    cerca();
+  };
+  $('#cdTutti').onclick = ()=> setDir('', 'cdTutti');
+  $('#cdAtt').onclick = ()=> setDir('attiva', 'cdAtt');
+  $('#cdPas').onclick = ()=> setDir('passiva', 'cdPas');
+  $('#cdLiberi').onchange = cerca;
+  let tq; $('#cdQ').oninput = ()=>{ clearTimeout(tq); tq = setTimeout(cerca, 350); };
+  cerca();
 }
 
 // ---------- FORM COMMESSA ----------
