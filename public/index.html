@@ -803,7 +803,10 @@ async function vistaCommesse(m){
       i.ricavi, i.costi, i.costi_generali_quota, i.margine_lordo, i.margine_netto,
       (i.costi_extra_diretti||0)+(i.costi_extra_quota||0), i.margine_finale,
       i.ore, i.ore_previste||'', i.orario_fatturato, i.orario_netto, i.orario_finale]));
-  m.querySelectorAll('[data-inc]').forEach(t=> t.onclick = ()=> apriCommessa(t.dataset.inc));
+  m.querySelectorAll('[data-inc]').forEach(t=> t.onclick = (ev)=>{
+    if(ev.target.closest('.sel')) return;
+    apriCommessa(t.dataset.inc);
+  });
   const rif = ()=>{ 
     S.filtriInc.q = $('#fq').value;
     S.filtriInc.soggetto_id = $('#fCliente').value;
