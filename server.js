@@ -776,6 +776,11 @@ app.get('/api/documenti', wrap(async (req, res) => {
   if (req.query.dal) { par.push(req.query.dal); cond.push(`d.data >= $${par.length}`); }
   if (req.query.al) { par.push(req.query.al); cond.push(`d.data <= $${par.length}`); }
   if (req.query.anno) { par.push(Number(req.query.anno)); cond.push(`EXTRACT(YEAR FROM d.data) = $${par.length}`); }
+  if (req.query.classificazione === 'commessa') cond.push('d.incarico_id IS NOT NULL');
+  if (req.query.classificazione === 'generale') cond.push("d.costo_generale = TRUE AND d.incarico_id IS NULL");
+  if (req.query.classificazione === 'da_classificare') {
+    cond.push("d.direzione = 'passiva' AND d.incarico_id IS NULL AND d.costo_generale = FALSE");
+  }
   if (req.query.incassato === 'si') cond.push('d.data_incasso IS NOT NULL');
   if (req.query.incassato === 'no') cond.push('d.data_incasso IS NULL');
   if (req.query.tag) {
@@ -845,8 +850,8 @@ app.post('/api/documenti', wrap(async (req, res) => {
       cassa_importo, cassa_aliquota, ritenuta_importo, ritenuta_aliquota,
       reverse_charge, fornitore_forfettario,
       data_scadenza, data_incasso, documento_riferimento_id,
-      cig, codice_commessa, descrizione, origine, note
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'manuale',$23)
+      cig, codice_commessa, descrizione, origine, note, costo_generale
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'manuale',$23,$24)
     RETURNING *`,
   [
     b.direzione === 'passiva' ? 'passiva' : 'attiva',
@@ -855,7 +860,8 @@ app.post('/api/documenti', wrap(async (req, res) => {
     c.cassa_importo, c.cassa_aliquota, c.ritenuta_importo, c.ritenuta_aliquota,
     !!b.reverse_charge, !!b.fornitore_forfettario,
     b.data_scadenza || null, b.data_incasso || null, b.documento_riferimento_id || null,
-    b.cig || null, b.codice_commessa || null, b.descrizione || null, b.note || null
+    b.cig || null, b.codice_commessa || null, b.descrizione || null, b.note || null,
+    !!b.costo_generale
   ]);
 
   const doc = rows[0];
@@ -907,6 +913,7 @@ app.put('/api/documenti/:id', wrap(async (req, res) => {
   });
   if (b.reverse_charge !== undefined) push('reverse_charge', !!b.reverse_charge);
   if (b.fornitore_forfettario !== undefined) push('fornitore_forfettario', !!b.fornitore_forfettario);
+  if (b.costo_generale !== undefined) push('costo_generale', !!b.costo_generale);
 
   if (c) {
     push('totale_documento', c.totale_documento);
@@ -1000,6 +1007,19 @@ app.post('/api/documenti/massivo', wrap(async (req, res) => {
       await client.query(
         'UPDATE documenti SET incarico_id = $1, updated_at = NOW() WHERE id = ANY($2)',
         [inc, ids]
+      );
+    }
+
+    // marcare come generale implica togliere la commessa: le due cose
+    // si escludono, un costo o e' di una commessa o e' di struttura
+    if (req.body.costo_generale !== undefined) {
+      const g = !!req.body.costo_generale;
+      await client.query(
+        `UPDATE documenti SET costo_generale = $1,
+           incarico_id = CASE WHEN $1 THEN NULL ELSE incarico_id END,
+           updated_at = NOW()
+         WHERE id = ANY($2)`,
+        [g, ids]
       );
     }
 
@@ -1645,6 +1665,12 @@ app.get('/api/costi', wrap(async (req, res) => {
     n: r.n
   })).sort((a, b) => b.totale - a.totale);
 
+  const daClassificare = await db.query(`
+    SELECT COALESCE(SUM(imponibile * segno),0) AS totale, COUNT(*) AS n
+    FROM documenti
+    WHERE direzione = 'passiva' AND EXTRACT(YEAR FROM data) = $1
+      AND incarico_id IS NULL AND costo_generale = FALSE`, [anno]);
+
   // quota di costi passivi senza alcun tag
   const senzaTag = await db.query(`
     SELECT COALESCE(SUM(d.imponibile * d.segno),0) AS totale, COUNT(*) AS n
@@ -1703,6 +1729,10 @@ app.get('/api/costi', wrap(async (req, res) => {
     senza_tag: {
       totale: r2(Number(senzaTag.rows[0].totale)),
       n: Number(senzaTag.rows[0].n)
+    },
+    da_classificare: {
+      totale: r2(Number(daClassificare.rows[0].totale)),
+      n: Number(daClassificare.rows[0].n)
     },
     per_voce: perVoce,
     per_fornitore: perFornitore.rows.map((f) => ({
@@ -2190,6 +2220,28 @@ dalle ipotesi, e ricorda che le ore sono registrate a mano e possono essere inco
 
 Non sei un commercialista: per adempimenti e aliquote reali rimanda al suo parere.`;
 
+app.get('/api/chat/conversazioni', wrap(async (req, res) => {
+  const { rows } = await db.query(`
+    SELECT c.*, (SELECT COUNT(*) FROM chat_messaggi m WHERE m.conversazione_id = c.id) AS messaggi
+    FROM chat_conversazioni c ORDER BY c.updated_at DESC LIMIT 50`);
+  res.json(rows);
+}));
+
+app.get('/api/chat/conversazioni/:id', wrap(async (req, res) => {
+  const c = await db.query('SELECT * FROM chat_conversazioni WHERE id = $1', [req.params.id]);
+  if (!c.rows[0]) return res.status(404).json({ error: 'Conversazione non trovata' });
+  const m = await db.query(
+    'SELECT ruolo, contenuto, created_at FROM chat_messaggi WHERE conversazione_id = $1 ORDER BY id',
+    [req.params.id]
+  );
+  res.json({ ...c.rows[0], messaggi: m.rows });
+}));
+
+app.delete('/api/chat/conversazioni/:id', wrap(async (req, res) => {
+  await db.query('DELETE FROM chat_conversazioni WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
+}));
+
 app.post('/api/chat', wrap(async (req, res) => {
   const chiave = process.env.ANTHROPIC_API_KEY;
   if (!chiave) {
@@ -2231,7 +2283,30 @@ app.post('/api/chat', wrap(async (req, res) => {
   const testo = (dati.content || [])
     .filter((b) => b.type === 'text').map((b) => b.text).join('\n');
 
-  res.json({ testo, uso: dati.usage || null });
+  // salvataggio: la conversazione si crea alla prima domanda,
+  // il titolo si ricava da quella
+  let convId = req.body.conversazione_id ? Number(req.body.conversazione_id) : null;
+  const ultima = messaggi[messaggi.length - 1];
+  try {
+    if (!convId) {
+      const titolo = String(ultima.content || 'Conversazione').replace(/\s+/g, ' ').trim().slice(0, 80);
+      const nuova = await db.query(
+        'INSERT INTO chat_conversazioni (titolo, anno) VALUES ($1, $2) RETURNING id',
+        [titolo || 'Conversazione', anno]
+      );
+      convId = nuova.rows[0].id;
+    }
+    await db.query(
+      'INSERT INTO chat_messaggi (conversazione_id, ruolo, contenuto) VALUES ($1, $2, $3), ($1, $4, $5)',
+      [convId, 'user', String(ultima.content || ''), 'assistant', testo]
+    );
+    await db.query('UPDATE chat_conversazioni SET updated_at = NOW() WHERE id = $1', [convId]);
+  } catch (err) {
+    // se il salvataggio fallisce la risposta va comunque restituita
+    console.error('[chat] storico non salvato:', err.message);
+  }
+
+  res.json({ testo, conversazione_id: convId, uso: dati.usage || null });
 }));
 
 // ============================================================
