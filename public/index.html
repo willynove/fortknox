@@ -280,6 +280,17 @@ td.sel input,th.sel input{width:15px;height:15px;accent-color:var(--accent-deep)
   padding:6px 12px;font-size:12.5px;color:var(--ink-soft);
 }
 .suggerimenti button:hover{border-color:var(--ink-soft);color:var(--ink)}
+.chat-wrap{display:grid;grid-template-columns:230px 1fr;gap:16px;align-items:start}
+.conv-lista{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:8px;max-height:calc(100vh - 170px);overflow-y:auto}
+.conv{display:flex;align-items:center;gap:6px;padding:8px 9px;border-radius:var(--r-sm);cursor:pointer}
+.conv:hover{background:var(--bg)}
+.conv.on{background:var(--accent-wash)}
+.conv .t{flex:1;font-size:12.5px;line-height:1.35;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.conv .x{background:none;border:none;color:var(--muted);font-size:15px;padding:0 3px;opacity:0;flex-shrink:0}
+.conv:hover .x{opacity:1}
+.conv .x:hover{color:var(--danger)}
 .pensa{display:inline-flex;gap:4px;align-items:center}
 .pensa i{width:5px;height:5px;border-radius:50%;background:var(--muted);animation:p 1.2s infinite}
 .pensa i:nth-child(2){animation-delay:.2s}
@@ -297,6 +308,8 @@ td.sel input,th.sel input{width:15px;height:15px;accent-color:var(--accent-deep)
   .side-foot{display:none}
   main{padding:18px 14px 50px}
   .split{grid-template-columns:1fr}
+  .chat-wrap{grid-template-columns:1fr}
+  .conv-lista{max-height:150px}
   .row,.row-3{grid-template-columns:1fr}
 }
 </style>
@@ -356,7 +369,8 @@ const S = {
   anno:new Date().getFullYear(),
   soggetti:[], tipologie:[], tags:[], incarichi:[],
   filtriDoc:{direzione:'', incassato:'', tag:'', q:''},
-  filtriInc:{soggetto_id:'', tipologia_id:'', stato:'', q:''}
+  filtriInc:{soggetto_id:'', tipologia_id:'', stato:'', q:''},
+  filtroSog:'', ruoloSog:''
 };
 
 const $ = (s,r)=> (r||document).querySelector(s);
@@ -1438,24 +1452,39 @@ function formDocumento(d){
 async function vistaAnagrafica(m){
   const clienti = await api('/clienti?anno='+S.anno);
   const mappa = new Map(clienti.map(c=>[c.id, c]));
+  const q = (S.filtroSog||'').toLowerCase().trim();
+  const elenco = S.soggetti.filter(x=>{
+    if(S.ruoloSog==='cliente' && !x.is_cliente) return false;
+    if(S.ruoloSog==='fornitore' && !x.is_fornitore) return false;
+    if(!q) return true;
+    return (x.denominazione+' '+(x.piva||'')+' '+(x.codice_fiscale||'')).toLowerCase().includes(q);
+  });
   const conOre = clienti.filter(c=>c.orario_finale!=null);
   const media = conOre.length ? conOre.reduce((s,c)=>s+c.orario_finale,0)/conOre.length : null;
 
   m.innerHTML = `
     <div class="head">
-      <div><h1>Anagrafica</h1><div class="sub">${S.soggetti.length} soggetti · metriche ${S.anno}</div></div>
+      <div><h1>Anagrafica</h1><div class="sub">${elenco.length} di ${S.soggetti.length} soggetti · metriche ${S.anno}</div></div>
       <div style="display:flex;gap:8px;align-items:center">
         ${selettoreAnni()}
         <button class="btn btn-ghost" id="btnCsvA">Esporta CSV</button>
         <button class="btn btn-accent" id="btnNuovoS">Nuovo soggetto</button>
       </div>
     </div>
-    ${S.soggetti.length ? `
+    <div class="filters">
+      <input type="text" id="fSog" placeholder="Cerca per nome o P.IVA…" value="${esc(S.filtroSog||'')}" style="min-width:240px">
+      <div class="seg">
+        <button data-ruolo="" class="${!S.ruoloSog?'on':''}">Tutti</button>
+        <button data-ruolo="cliente" class="${S.ruoloSog==='cliente'?'on':''}">Clienti</button>
+        <button data-ruolo="fornitore" class="${S.ruoloSog==='fornitore'?'on':''}">Fornitori</button>
+      </div>
+    </div>
+    ${elenco.length ? `
     <div class="panel"><table>
       <thead><tr><th>Denominazione</th><th>Ruolo</th>
         <th class="num">Ricavi ${S.anno}</th><th class="num">Ore</th>
         <th class="num">€/h finale</th><th class="num">Incasso</th><th class="num">Da incassare</th></tr></thead>
-      <tbody>${S.soggetti.map(s=>{
+      <tbody>${elenco.map(s=>{
         const c = mappa.get(s.id);
         return `<tr class="clickable" data-sog="${s.id}" data-cliente="${s.is_cliente?1:0}">
           <td class="strong">${esc(s.denominazione)}
@@ -1474,12 +1503,18 @@ async function vistaAnagrafica(m){
     ${media!=null?`<div class="sub" style="margin-top:8px">Media ${eur(media)} all'ora tra i clienti con ore registrate.</div>`:''}
     ` : `
     <div class="panel"><div class="empty">
-      <p>Nessun soggetto in anagrafica.<br>Servono i clienti prima di poter creare commesse.</p>
-      <button class="btn btn-accent btn-sm" onclick="formSoggetto()">Aggiungi il primo</button>
+      <p>${q||S.ruoloSog ? 'Nessun soggetto con questi filtri.' : 'Nessun soggetto in anagrafica.<br>Servono i clienti prima di poter creare commesse.'}</p>
+      ${q||S.ruoloSog ? '' : '<button class="btn btn-accent btn-sm" onclick="formSoggetto()">Aggiungi il primo</button>'}
     </div></div>`}
   `;
   legaAnno();
   $('#btnNuovoS').onclick = ()=> formSoggetto();
+  let tsg; $('#fSog').oninput = ()=>{ clearTimeout(tsg); tsg = setTimeout(()=>{
+    S.filtroSog = $('#fSog').value; render();
+  }, 300); };
+  m.querySelectorAll('[data-ruolo]').forEach(b=> b.onclick = ()=>{
+    S.ruoloSog = b.dataset.ruolo; render();
+  });
   $('#btnCsvA').onclick = ()=> esportaCsv('clienti-'+S.anno,
     ['Cliente','Tipo','Sostituto d imposta','Ricavi','Peso %','Fatture','Commesse','Ore',
      'Costi diretti','Margine finale','€/h finale','Giorni incasso','Da incassare'],
@@ -2328,6 +2363,7 @@ async function vistaFisco(m){
 // ricaricando l'app riparte da zero.
 // ============================================================
 let CHAT = [];
+let CONV_ID = null;
 
 const SUGGERIMENTI = [
   'Quali commesse rendono meno e perché',
@@ -2347,17 +2383,48 @@ async function vistaChat(m){
         <button class="btn btn-ghost" id="chatPulisci">Nuova conversazione</button>
       </div>
     </div>
-    <div class="chat">
-      <div class="chat-scroll" id="chatScroll"></div>
-      <div class="chat-input">
-        <textarea id="chatQ" placeholder="Scrivi una domanda…" rows="1"></textarea>
-        <button class="btn btn-accent" id="chatInvia">Invia</button>
+    <div class="chat-wrap">
+      <div class="conv-lista" id="convLista"></div>
+      <div class="chat">
+        <div class="chat-scroll" id="chatScroll"></div>
+        <div class="chat-input">
+          <textarea id="chatQ" placeholder="Scrivi una domanda…" rows="1"></textarea>
+          <button class="btn btn-accent" id="chatInvia">Invia</button>
+        </div>
       </div>
     </div>
   `;
   legaAnno();
 
   const scroll = $('#chatScroll');
+
+  async function disegnaConv(){
+    const conv = await api('/chat/conversazioni');
+    const box = $('#convLista');
+    if(!conv.length){
+      box.innerHTML = '<div class="sub" style="padding:10px">Nessuna conversazione salvata.</div>';
+      return;
+    }
+    box.innerHTML = conv.map(c=>`
+      <div class="conv ${CONV_ID==c.id?'on':''}" data-conv="${c.id}">
+        <span class="t">${esc(c.titolo)}<br><span class="dim">${dt(c.updated_at)} · ${c.messaggi} messaggi</span></span>
+        <button class="x" data-delconv="${c.id}" title="Elimina">&times;</button>
+      </div>`).join('');
+    box.querySelectorAll('[data-conv]').forEach(el=> el.onclick = async (ev)=>{
+      if(ev.target.dataset.delconv) return;
+      const d = await api('/chat/conversazioni/'+el.dataset.conv);
+      CONV_ID = Number(el.dataset.conv);
+      CHAT = d.messaggi.map(x=>({role:x.ruolo, content:x.contenuto}));
+      disegna(); disegnaConv();
+    });
+    box.querySelectorAll('[data-delconv]').forEach(b=> b.onclick = async (ev)=>{
+      ev.stopPropagation();
+      if(!confirm('Eliminare questa conversazione?')) return;
+      await api('/chat/conversazioni/'+b.dataset.delconv,{method:'DELETE'});
+      if(CONV_ID == b.dataset.delconv){ CONV_ID = null; CHAT = []; disegna(); }
+      disegnaConv();
+    });
+  }
 
   function disegna(){
     if(!CHAT.length){
@@ -2393,10 +2460,12 @@ async function vistaChat(m){
     $('#chatInvia').disabled = true;
     try{
       const r = await api('/chat',{method:'POST',body:JSON.stringify({
-        anno:S.anno,
+        anno:S.anno, conversazione_id:CONV_ID,
         messaggi: CHAT.filter(x=>!x.attesa).map(x=>({role:x.role, content:x.content}))
       })});
       CHAT[CHAT.length-1] = {role:'assistant', content:r.testo || '(nessuna risposta)'};
+      CONV_ID = r.conversazione_id || CONV_ID;
+      disegnaConv();
     }catch(e){
       CHAT.pop();
       CHAT.push({role:'assistant', content:'Non ha funzionato: '+e.message});
@@ -2407,7 +2476,7 @@ async function vistaChat(m){
   }
 
   $('#chatInvia').onclick = invia;
-  $('#chatPulisci').onclick = ()=>{ CHAT = []; disegna(); };
+  $('#chatPulisci').onclick = ()=>{ CHAT = []; CONV_ID = null; disegna(); disegnaConv(); };
   const ta = $('#chatQ');
   ta.onkeydown = (e)=>{
     if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); invia(); }
@@ -2417,6 +2486,7 @@ async function vistaChat(m){
     ta.style.height = Math.min(140, ta.scrollHeight)+'px';
   };
   disegna();
+  disegnaConv();
 }
 
 // ============================================================
