@@ -1249,6 +1249,78 @@ app.delete('/api/costi-extra/:id', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Operazioni di massa sulle commesse.
+app.post('/api/incarichi/massivo', wrap(async (req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'Nessuna commessa selezionata' });
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (req.body.elimina) {
+      // i documenti non si cancellano mai: perdono solo il riferimento
+      const c = await client.query(
+        'SELECT COUNT(*) AS n FROM documenti WHERE incarico_id = ANY($1)', [ids]);
+      await client.query(
+        'UPDATE documenti SET incarico_id = NULL WHERE incarico_id = ANY($1)', [ids]);
+      await client.query('DELETE FROM incarichi WHERE id = ANY($1)', [ids]);
+      await client.query('COMMIT');
+      return res.json({ ok: true, eliminate: ids.length, scollegati: Number(c.rows[0].n) });
+    }
+
+    if (req.body.stato) {
+      await client.query(
+        'UPDATE incarichi SET stato = $1, updated_at = NOW() WHERE id = ANY($2)',
+        [req.body.stato, ids]
+      );
+    }
+    const tip = Array.isArray(req.body.tipologie) ? req.body.tipologie.map(Number).filter(Boolean) : [];
+    if (tip.length) {
+      if (req.body.sostituisci_tipologie) {
+        await client.query('DELETE FROM incarico_tipologie WHERE incarico_id = ANY($1)', [ids]);
+      }
+      for (const i of ids) {
+        for (const t of tip) {
+          await client.query(
+            'INSERT INTO incarico_tipologie (incarico_id, tipologia_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [i, t]
+          );
+        }
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ ok: true, commesse: ids.length });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+}));
+
+// Operazioni di massa sui costi extra.
+app.post('/api/costi-extra/massivo', wrap(async (req, res) => {
+  const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'Nessuna voce selezionata' });
+
+  if (req.body.elimina) {
+    await db.query('DELETE FROM costi_extra WHERE id = ANY($1)', [ids]);
+    return res.json({ ok: true, eliminate: ids.length });
+  }
+  if (req.body.incarico_id !== undefined) {
+    const inc = req.body.incarico_id === '' || req.body.incarico_id === null
+      ? null : Number(req.body.incarico_id);
+    await db.query('UPDATE costi_extra SET incarico_id = $1 WHERE id = ANY($2)', [inc, ids]);
+  }
+  if (req.body.categoria) {
+    await db.query('UPDATE costi_extra SET categoria = $1 WHERE id = ANY($2)',
+      [String(req.body.categoria).trim(), ids]);
+  }
+  res.json({ ok: true, voci: ids.length });
+}));
+
 // ============================================================
 // FISCO
 // IVA per competenza (data di emissione) e accantonamento imposte.
