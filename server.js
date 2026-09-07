@@ -1073,6 +1073,7 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
   const { rows } = await db.query(`
     SELECT
       COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN imponibile * segno END), 0) AS ricavi,
+      COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN totale_documento * segno END), 0) AS fatturato,
       COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN imposta * segno END), 0) AS iva_debito,
       COALESCE(SUM(CASE WHEN direzione = 'attiva' THEN ritenuta_importo * segno END), 0) AS ritenute,
       COALESCE(SUM(CASE WHEN direzione = 'passiva' THEN imponibile * segno END), 0) AS costi,
@@ -1151,6 +1152,7 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
 
   res.json({
     anno,
+    fatturato: r2(Number(d.fatturato)),
     ricavi: r2(ricavi),
     costi: r2(costi),
     costi_commesse: costiCommesse,
