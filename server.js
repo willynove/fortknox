@@ -1134,10 +1134,27 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
   const precCosti = r2(Number(prec.rows[0].costi));
   const ricaviFinora = r2(mensile.slice(0, meseLimite).reduce((s, m) => s + m.ricavi, 0));
 
+  // scomposizione dei costi deducibili: quanto e' attribuito alle commesse
+  // (diretto o ripartito) e quanto resta spesa di struttura
+  const scomp = await db.query(`
+    SELECT
+      COALESCE(SUM(d.imponibile * d.segno * (
+        CASE WHEN d.incarico_id IS NOT NULL THEN 1
+             ELSE COALESCE((SELECT SUM(dr.percentuale)/100
+                            FROM documento_ripartizioni dr
+                            WHERE dr.documento_id = d.id), 0)
+        END)), 0) AS su_commesse
+    FROM documenti d
+    WHERE d.direzione = 'passiva' AND EXTRACT(YEAR FROM d.data) = $1`, [anno]);
+  const costiCommesse = r2(Number(scomp.rows[0].su_commesse));
+  const costiGenerali = r2(costi - costiCommesse);
+
   res.json({
     anno,
     ricavi: r2(ricavi),
     costi: r2(costi),
+    costi_commesse: costiCommesse,
+    costi_generali: costiGenerali,
     margine_lordo: lordo,
     margine_netto: netto,
     tasse_stimate: tasse,
