@@ -480,7 +480,7 @@ $('#btnLogout').onclick = async ()=>{
 const VOCI = [
   {id:'riepilogo', t:'Riepilogo', i:'<path d="M3 13h4v7H3zM10 4h4v16h-4zM17 9h4v11h-4z"/>'},
   {id:'commesse',  t:'Commesse',  i:'<path d="M3 7h18v13H3zM8 7V4h8v3"/>'},
-  {id:'documenti', t:'Documenti', i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
+  {id:'documenti', t:'Fatture',   i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
   {id:'costi',     t:'Costi',     i:'<path d="M3 17l5-5 4 3 8-8M21 7h-5M21 7v5"/>'},
   {id:'extra',     t:'Extra',     i:'<path d="M12 5v14M5 12h14"/>'},
   {id:'preventivo',t:'Preventivo',i:'<path d="M7 3h10v18H7zM10 7h4M10 11h4M10 15h2"/>'},
@@ -976,37 +976,40 @@ async function apriCommessa(id){
   });
 }
 
-// ---------- CAMPO COMMESSA CON RICERCA ----------
-// Con decine di commesse un menu a tendina e' inservibile: qui si digita
-// e la lista si filtra, ordinata alfabeticamente.
-function comboCommessaHTML(id, selezionata){
-  const c = S.incarichi.find(i=>i.id==selezionata);
+// ---------- CAMPO CON RICERCA ----------
+// Con decine di voci un menu a tendina e' inservibile: qui si digita
+// e la lista si filtra, sempre in ordine alfabetico.
+// voci: [{id, testo, sotto}]. vuoto: etichetta della voce "nessuna",
+// oppure null se la scelta e' obbligatoria.
+function comboHTML(id, voci, sel, segnaposto){
+  const c = voci.find(v=>v.id==sel);
   return `<div style="position:relative">
-    <input type="hidden" id="${id}" value="${selezionata||''}">
+    <input type="hidden" id="${id}" value="${sel||''}">
     <input type="text" id="${id}Q" autocomplete="off"
-      placeholder="Nessuna, cerca per collegarla"
-      value="${c?esc(c.titolo+' — '+c.cliente):''}">
+      placeholder="${esc(segnaposto||'Cerca…')}"
+      value="${c?esc(c.testo+(c.sotto?' — '+c.sotto:'')):''}">
     <div id="${id}L" class="autolist hidden"></div>
   </div>`;
 }
 
-function legaCombo(id){
+function legaCombo(id, voci, vuoto){
   const hid = $('#'+id), inp = $('#'+id+'Q'), lista = $('#'+id+'L');
-  const ordinate = [...S.incarichi].sort((a,b)=>
-    a.titolo.localeCompare(b.titolo,'it',{sensitivity:'base'}));
+  if(!hid || !inp) return;
+  const ordinate = [...voci].sort((a,b)=>
+    String(a.testo).localeCompare(String(b.testo),'it',{sensitivity:'base'}));
 
   function mostra(){
     const q = inp.value.toLowerCase().trim();
-    const f = (q ? ordinate.filter(i=>
-      (i.titolo+' '+i.cliente).toLowerCase().includes(q)) : ordinate).slice(0,40);
+    const f = (q ? ordinate.filter(v=>
+      (v.testo+' '+(v.sotto||'')).toLowerCase().includes(q)) : ordinate).slice(0,40);
     lista.innerHTML =
-      `<div data-v=""><span class="dim">Nessuna commessa</span></div>` +
-      f.map(i=>`<div data-v="${i.id}">${esc(i.titolo)}<div class="sub">${esc(i.cliente)}</div></div>`).join('');
+      (vuoto ? `<div data-v=""><span class="dim">${esc(vuoto)}</span></div>` : '') +
+      f.map(v=>`<div data-v="${v.id}">${esc(v.testo)}${v.sotto?`<div class="sub">${esc(v.sotto)}</div>`:''}</div>`).join('');
     lista.classList.remove('hidden');
     lista.querySelectorAll('[data-v]').forEach(x=> x.onmousedown = ()=>{
       hid.value = x.dataset.v;
-      const sel = S.incarichi.find(i=>i.id==x.dataset.v);
-      inp.value = sel ? sel.titolo+' — '+sel.cliente : '';
+      const scelta = voci.find(v=>v.id==x.dataset.v);
+      inp.value = scelta ? scelta.testo+(scelta.sotto?' — '+scelta.sotto:'') : '';
       lista.classList.add('hidden');
     });
   }
@@ -1014,10 +1017,19 @@ function legaCombo(id){
   inp.onfocus = mostra;
   inp.onblur = ()=> setTimeout(()=>{
     lista.classList.add('hidden');
-    // se il testo e' stato svuotato a mano, si toglie il collegamento
-    if(!inp.value.trim()) hid.value = '';
+    // testo svuotato a mano: si toglie la scelta, ma solo se e' ammesso il vuoto
+    if(!inp.value.trim() && vuoto) hid.value = '';
   }, 150);
 }
+
+// scorciatoie per i due elenchi usati piu' spesso
+const vociCommesse = ()=> S.incarichi.map(i=>({id:i.id, testo:i.titolo, sotto:i.cliente}));
+const vociSoggetti = ()=> S.soggetti.map(s=>({id:s.id, testo:s.denominazione, sotto:s.piva||s.codice_fiscale||''}));
+
+function comboCommessaHTML(id, sel){
+  return comboHTML(id, vociCommesse(), sel, 'Nessuna, cerca per collegarla');
+}
+function legaCommessa(id){ legaCombo(id, vociCommesse(), 'Nessuna commessa'); }
 
 // ---------- COLLEGA UN DOCUMENTO ESISTENTE ----------
 function cercaDocumento(incaricoId, titoloCommessa){
@@ -1082,8 +1094,8 @@ function formCommessa(d){
   const tipSel = (d && d.tipologie) ? d.tipologie.map(t=>t.id) : [];
   modal(d?'Modifica commessa':'Nuova commessa', `
     <div class="field"><label>Cliente</label>
-      <select id="cSog">${S.soggetti.filter(s=>s.is_cliente).map(s=>
-        `<option value="${s.id}" ${e.soggetto_id==s.id?'selected':''}>${esc(s.denominazione)}</option>`).join('')}</select></div>
+      ${comboHTML('cSog', S.soggetti.filter(x=>x.is_cliente).map(x=>({id:x.id, testo:x.denominazione, sotto:x.piva||''})), e.soggetto_id, 'Cerca il cliente…')}
+    </div>
     <div class="field"><label>Titolo</label><input type="text" id="cTit" value="${esc(e.titolo||'')}"></div>
     <div class="field"><label>Tipologie</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
@@ -1114,6 +1126,9 @@ function formCommessa(d){
   `, `<button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
       <button class="btn btn-accent" id="cSalva">Salva</button>`);
 
+  legaCombo('cSog', S.soggetti.filter(x=>x.is_cliente)
+    .map(x=>({id:x.id, testo:x.denominazione, sotto:x.piva||''})), null);
+
   $('#cSalva').onclick = async ()=>{
     const body = {
       soggetto_id:$('#cSog').value, titolo:$('#cTit').value.trim(),
@@ -1123,6 +1138,7 @@ function formCommessa(d){
       ricorrente:$('#cRic').checked, descrizione:$('#cDes').value,
       tipologie:[...document.querySelectorAll('.cTip:checked')].map(c=>Number(c.value))
     };
+    if(!body.soggetto_id) return toast('Scegli il cliente', true);
     if(!body.titolo) return toast('Serve un titolo', true);
     try{
       const r = d ? await api('/incarichi/'+d.id,{method:'PUT',body:JSON.stringify(body)})
@@ -1186,10 +1202,10 @@ async function vistaDocumenti(m){
 
   m.innerHTML = `
     <div class="head">
-      <div><h1>Documenti</h1><div class="sub">${docs.length} risultati · saldo ${eur0(tot)}</div></div>
+      <div><h1>Fatture</h1><div class="sub">${docs.length} risultati · saldo ${eur0(tot)}</div></div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-ghost" id="btnCsvD">Esporta CSV</button>
-        <button class="btn btn-accent" id="btnNuovoD">Nuovo documento</button>
+        <button class="btn btn-accent" id="btnNuovoD">Nuova fattura</button>
       </div>
     </div>
     <div class="filters">
@@ -1212,7 +1228,7 @@ async function vistaDocumenti(m){
     <div class="panel"><table>
       <thead><tr>
         <th class="sel"><input type="checkbox" id="selTutti"></th>
-        <th>Data</th><th>Numero</th><th>Controparte</th><th>Commessa</th><th>Tag</th>
+        <th>Data</th><th>Numero</th><th>Controparte</th><th>Oggetto</th><th>Commessa</th><th>Tag</th>
         <th class="num">Imponibile</th><th class="num">IVA</th><th>Incasso</th>
       </tr></thead>
       <tbody>${docs.map(d=>`
@@ -1223,6 +1239,8 @@ async function vistaDocumenti(m){
             ${d.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}
             ${d.reverse_charge?'<span class="pill">RC</span>':''}</td>
           <td class="strong">${esc(d.controparte)}</td>
+          <td class="dim" style="max-width:260px" title="${esc(d.descrizione||'')}">${
+            d.descrizione ? esc(d.descrizione.length>70 ? d.descrizione.slice(0,70)+'…' : d.descrizione) : '—'}</td>
           <td class="dim">${d.incarico?esc(d.incarico):'—'}</td>
           <td>${(d.tags||[]).map(t=>`<span class="tagchip">${esc(t)}</span>`).join('')}</td>
           <td class="num mono ${d.direzione==='passiva'?'neg':''}">${d.direzione==='passiva'?'− ':''}${eur0(d.imponibile*d.segno)}</td>
@@ -1235,13 +1253,13 @@ async function vistaDocumenti(m){
       </tbody>
     </table></div>` : `
     <div class="panel"><div class="empty">
-      <p>Nessun documento con questi filtri.</p>
-      <button class="btn btn-accent btn-sm" onclick="formDocumento()">Inserisci il primo</button>
+      <p>Nessuna fattura con questi filtri.</p>
+      <button class="btn btn-accent btn-sm" onclick="formDocumento()">Inserisci la prima</button>
     </div></div>`}
   `;
   legaAnno();
   $('#btnNuovoD').onclick = ()=> formDocumento();
-  $('#btnCsvD').onclick = ()=> esportaCsv('documenti-'+S.anno,
+  $('#btnCsvD').onclick = ()=> esportaCsv('fatture-'+S.anno,
     ['Direzione','Data','Numero','Tipo','Controparte','Commessa','Tag',
      'Imponibile','IVA','Totale','Ritenuta','Scadenza','Incasso','Descrizione'],
     docs.map(d=>[d.direzione, d.data, d.numero, d.tipo_documento, d.controparte,
@@ -1280,7 +1298,7 @@ async function vistaDocumenti(m){
       <button class="btn btn-sm" id="bsScollega"
         style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Scollega</button>`,
     lega:(scelti)=>{
-      legaCombo('bsInc');
+      legaCommessa('bsInc');
       $('#bsApplica').onclick = async ()=>{
         const ids = scelti();
         const body = { ids };
@@ -1319,8 +1337,8 @@ function formDocumento(d){
     <input type="hidden" id="dDir" value="${passiva?'passiva':'attiva'}">
 
     <div class="field"><label id="lblSog">${passiva?'Fornitore':'Cliente'}</label>
-      <select id="dSog">${S.soggetti.map(s=>
-        `<option value="${s.id}" ${e.soggetto_id==s.id?'selected':''}>${esc(s.denominazione)}</option>`).join('')}</select></div>
+      ${comboHTML('dSog', S.soggetti.map(x=>({id:x.id, testo:x.denominazione, sotto:x.piva||x.codice_fiscale||''})), e.soggetto_id, 'Cerca per nome o P.IVA…')}
+    </div>
 
     <div class="row-3">
       <div class="field"><label>Numero</label><input type="text" id="dNum" value="${esc(e.numero||'')}"></div>
@@ -1416,7 +1434,8 @@ function formDocumento(d){
     $('#dTags').value = cur.join(', ');
   });
   modo();
-  legaCombo('dInc');
+  legaCommessa('dInc');
+  legaCombo('dSog', vociSoggetti(), null);
 
   $('#dSalva').onclick = async ()=>{
     const body = {
@@ -1431,6 +1450,7 @@ function formDocumento(d){
       descrizione:$('#dDesc').value,
       tags:$('#dTags').value.split(',').map(x=>x.trim()).filter(Boolean)
     };
+    if(!body.soggetto_id) return toast('Scegli la controparte', true);
     if(!body.numero) return toast('Serve il numero documento', true);
     try{
       d ? await api('/documenti/'+d.id,{method:'PUT',body:JSON.stringify(body)})
@@ -1992,7 +2012,7 @@ async function vistaExtra(m){
       <button class="btn btn-sm" id="bsElimina"
         style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Elimina</button>`,
     lega:(scelti)=>{
-      legaCombo('bsInc');
+      legaCommessa('bsInc');
       $('#bsApplica').onclick = async ()=>{
         const ids = scelti();
         const body = { ids };
@@ -2063,7 +2083,7 @@ async function formExtra(v){
       <button class="btn btn-accent" id="eSalva">Salva</button>`);
 
   const inp = $('#eCat'), lista = $('#eAuto');
-  legaCombo('eInc');
+  legaCommessa('eInc');
   inp.oninput = ()=>{
     const q = inp.value.toLowerCase().trim();
     const f = q ? categorie.filter(c=>c.toLowerCase().includes(q)).slice(0,8) : categorie.slice(0,8);
