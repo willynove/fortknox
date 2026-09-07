@@ -298,6 +298,30 @@ CREATE INDEX IF NOT EXISTS idx_costi_extra_cat  ON costi_extra (lower(categoria)
 CREATE INDEX IF NOT EXISTS idx_costi_extra_inc  ON costi_extra (incarico_id);
 
 -- ------------------------------------------------------------
+-- CHAT
+-- Storico delle conversazioni di analisi. I messaggi non contengono
+-- i dati aggregati: quelli si ricostruiscono a ogni richiesta.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chat_conversazioni (
+  id         SERIAL PRIMARY KEY,
+  titolo     TEXT NOT NULL DEFAULT 'Nuova conversazione',
+  anno       INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_messaggi (
+  id              SERIAL PRIMARY KEY,
+  conversazione_id INTEGER NOT NULL REFERENCES chat_conversazioni(id) ON DELETE CASCADE,
+  ruolo           TEXT NOT NULL CHECK (ruolo IN ('user','assistant')),
+  contenuto       TEXT NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_msg_conv ON chat_messaggi (conversazione_id, id);
+CREATE INDEX IF NOT EXISTS idx_chat_conv_agg ON chat_conversazioni (updated_at DESC);
+
+-- ------------------------------------------------------------
 -- LOG IMPORT
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS import_log (
