@@ -261,6 +261,31 @@ tbody tr.clickable:hover{background:var(--bg)}
 td.sel,th.sel{width:34px;padding-right:0}
 td.sel input,th.sel input{width:15px;height:15px;accent-color:var(--accent-deep);cursor:pointer}
 
+/* ---------- CHAT ---------- */
+.chat{display:flex;flex-direction:column;height:calc(100vh - 150px);min-height:400px}
+.chat-scroll{flex:1;overflow-y:auto;padding:4px 2px 12px}
+.msg{margin-bottom:14px;display:flex}
+.msg.io{justify-content:flex-end}
+.msg .bolla{
+  max-width:82%;padding:11px 14px;border-radius:12px;font-size:14px;line-height:1.55;
+  white-space:pre-wrap;word-wrap:break-word;
+}
+.msg.io .bolla{background:var(--ink);color:#fff;border-bottom-right-radius:3px}
+.msg.lui .bolla{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:3px}
+.chat-input{display:flex;gap:8px;align-items:flex-end;padding-top:12px;border-top:1px solid var(--line)}
+.chat-input textarea{flex:1;min-height:44px;max-height:140px;resize:none}
+.suggerimenti{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.suggerimenti button{
+  border:1px solid var(--line);background:var(--surface);border-radius:20px;
+  padding:6px 12px;font-size:12.5px;color:var(--ink-soft);
+}
+.suggerimenti button:hover{border-color:var(--ink-soft);color:var(--ink)}
+.pensa{display:inline-flex;gap:4px;align-items:center}
+.pensa i{width:5px;height:5px;border-radius:50%;background:var(--muted);animation:p 1.2s infinite}
+.pensa i:nth-child(2){animation-delay:.2s}
+.pensa i:nth-child(3){animation-delay:.4s}
+@keyframes p{0%,60%,100%{opacity:.25}30%{opacity:1}}
+
 @media (max-width:860px){
   #app{flex-direction:column}
   aside{width:100%;height:auto;position:static;flex-direction:row;align-items:center;
@@ -446,6 +471,7 @@ const VOCI = [
   {id:'extra',     t:'Extra',     i:'<path d="M12 5v14M5 12h14"/>'},
   {id:'preventivo',t:'Preventivo',i:'<path d="M7 3h10v18H7zM10 7h4M10 11h4M10 15h2"/>'},
   {id:'fisco',     t:'Fisco',      i:'<path d="M4 20h16M6 20V9l6-5 6 5v11M10 20v-6h4v6"/>'},
+  {id:'chat',      t:'Chat',       i:'<path d="M4 5h16v11H9l-5 4V5z"/>'},
   {id:'importa',   t:'Importa',   i:'<path d="M12 3v12M8 11l4 4 4-4M4 20h16"/>'},
   {id:'anagrafica',t:'Anagrafica',i:'<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"/>'},
   {id:'impostazioni',t:'Impostazioni',i:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>'}
@@ -489,6 +515,7 @@ async function render(){
     else if(S.vista==='extra') await vistaExtra(m);
     else if(S.vista==='preventivo') await vistaPreventivo(m);
     else if(S.vista==='fisco') await vistaFisco(m);
+    else if(S.vista==='chat') await vistaChat(m);
     else if(S.vista==='importa') await vistaImporta(m);
     else if(S.vista==='anagrafica') await vistaAnagrafica(m);
     else if(S.vista==='impostazioni') await vistaImpostazioni(m);
@@ -2204,6 +2231,103 @@ async function vistaFisco(m){
      'Scadenza','Ricavi','Costi','Ritenute','Incassato'],
     f.trimestri.map(t=>[t.trimestre+'° trimestre', t.debito, t.credito, t.saldo,
       t.interessi, t.da_versare, t.scadenza, t.ricavi, t.costi, t.ritenute, t.incassato]));
+}
+
+// ============================================================
+// VISTA: CHAT
+// Lo storico vive solo in questa sessione: cambiando pagina resta,
+// ricaricando l'app riparte da zero.
+// ============================================================
+let CHAT = [];
+
+const SUGGERIMENTI = [
+  'Quali commesse rendono meno e perché',
+  'Quali clienti conviene tenere',
+  'Dove sto spendendo troppo',
+  'Come sta andando rispetto ai miei costi fissi',
+  'Cosa dovrei cambiare nei preventivi'
+];
+
+async function vistaChat(m){
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Chat</h1>
+        <div class="sub">Domande sui dati del ${S.anno}. Vede solo i totali aggregati, non le singole fatture.</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${selettoreAnni()}
+        <button class="btn btn-ghost" id="chatPulisci">Nuova conversazione</button>
+      </div>
+    </div>
+    <div class="chat">
+      <div class="chat-scroll" id="chatScroll"></div>
+      <div class="chat-input">
+        <textarea id="chatQ" placeholder="Scrivi una domanda…" rows="1"></textarea>
+        <button class="btn btn-accent" id="chatInvia">Invia</button>
+      </div>
+    </div>
+  `;
+  legaAnno();
+
+  const scroll = $('#chatScroll');
+
+  function disegna(){
+    if(!CHAT.length){
+      scroll.innerHTML = `
+        <div class="empty" style="padding:24px 0">
+          <p>Chiedi qualcosa sui tuoi numeri.</p>
+        </div>
+        <div class="suggerimenti">
+          ${SUGGERIMENTI.map(s=>`<button data-s="${esc(s)}">${esc(s)}</button>`).join('')}
+        </div>`;
+      scroll.querySelectorAll('[data-s]').forEach(b=> b.onclick = ()=>{
+        $('#chatQ').value = b.dataset.s; invia();
+      });
+      return;
+    }
+    scroll.innerHTML = CHAT.map(x=>`
+      <div class="msg ${x.role==='user'?'io':'lui'}">
+        <div class="bolla">${x.attesa
+          ? '<span class="pensa"><i></i><i></i><i></i></span>'
+          : esc(x.content)}</div>
+      </div>`).join('');
+    scroll.scrollTop = scroll.scrollHeight;
+  }
+
+  async function invia(){
+    const q = $('#chatQ').value.trim();
+    if(!q) return;
+    $('#chatQ').value = '';
+    $('#chatQ').style.height = 'auto';
+    CHAT.push({role:'user', content:q});
+    CHAT.push({role:'assistant', content:'', attesa:true});
+    disegna();
+    $('#chatInvia').disabled = true;
+    try{
+      const r = await api('/chat',{method:'POST',body:JSON.stringify({
+        anno:S.anno,
+        messaggi: CHAT.filter(x=>!x.attesa).map(x=>({role:x.role, content:x.content}))
+      })});
+      CHAT[CHAT.length-1] = {role:'assistant', content:r.testo || '(nessuna risposta)'};
+    }catch(e){
+      CHAT.pop();
+      CHAT.push({role:'assistant', content:'Non ha funzionato: '+e.message});
+    }
+    $('#chatInvia').disabled = false;
+    disegna();
+    $('#chatQ').focus();
+  }
+
+  $('#chatInvia').onclick = invia;
+  $('#chatPulisci').onclick = ()=>{ CHAT = []; disegna(); };
+  const ta = $('#chatQ');
+  ta.onkeydown = (e)=>{
+    if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); invia(); }
+  };
+  ta.oninput = ()=>{
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(140, ta.scrollHeight)+'px';
+  };
+  disegna();
 }
 
 // ============================================================
