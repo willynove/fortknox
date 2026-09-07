@@ -368,7 +368,7 @@ const S = {
   vista:'riepilogo',
   anno:new Date().getFullYear(),
   soggetti:[], tipologie:[], tags:[], incarichi:[],
-  filtriDoc:{direzione:'', incassato:'', tag:'', q:''},
+  filtriDoc:{direzione:'', incassato:'', tag:'', q:'', classificazione:''},
   filtriInc:{soggetto_id:'', tipologia_id:'', stato:'', q:''},
   filtroSog:'', ruoloSog:''
 };
@@ -1215,6 +1215,11 @@ async function vistaDocumenti(m){
         <button data-dir="attiva" class="${S.filtriDoc.direzione==='attiva'?'on':''}">Ricavi</button>
         <button data-dir="passiva" class="${S.filtriDoc.direzione==='passiva'?'on':''}">Costi</button>
       </div>
+      <select id="fCls"><option value="">Tutte le attribuzioni</option>
+        <option value="commessa" ${S.filtriDoc.classificazione==='commessa'?'selected':''}>Su una commessa</option>
+        <option value="generale" ${S.filtriDoc.classificazione==='generale'?'selected':''}>Costi generali</option>
+        <option value="da_classificare" ${S.filtriDoc.classificazione==='da_classificare'?'selected':''}>Da classificare</option>
+      </select>
       <select id="fInc"><option value="">Tutti gli incassi</option>
         <option value="no" ${S.filtriDoc.incassato==='no'?'selected':''}>Da incassare</option>
         <option value="si" ${S.filtriDoc.incassato==='si'?'selected':''}>Incassati</option>
@@ -1241,7 +1246,9 @@ async function vistaDocumenti(m){
           <td class="strong">${esc(d.controparte)}</td>
           <td class="dim" style="max-width:260px" title="${esc(d.descrizione||'')}">${
             d.descrizione ? esc(d.descrizione.length>70 ? d.descrizione.slice(0,70)+'…' : d.descrizione) : '—'}</td>
-          <td class="dim">${d.incarico?esc(d.incarico):'—'}</td>
+          <td class="dim">${d.incarico ? esc(d.incarico)
+            : (d.costo_generale ? '<span class="pill">generale</span>'
+               : (d.direzione==='passiva' ? '<span class="pill warn">da classificare</span>' : '—'))}</td>
           <td>${(d.tags||[]).map(t=>`<span class="tagchip">${esc(t)}</span>`).join('')}</td>
           <td class="num mono ${d.direzione==='passiva'?'neg':''}">${d.direzione==='passiva'?'− ':''}${eur0(d.imponibile*d.segno)}</td>
           <td class="num mono dim">${eur0(d.imposta)}</td>
@@ -1271,6 +1278,7 @@ async function vistaDocumenti(m){
     S.filtriDoc.direzione = b.dataset.dir; render();
   });
   $('#fInc').onchange = ()=>{ S.filtriDoc.incassato = $('#fInc').value; render(); };
+  $('#fCls').onchange = ()=>{ S.filtriDoc.classificazione = $('#fCls').value; render(); };
   $('#fTag').onchange = ()=>{ S.filtriDoc.tag = $('#fTag').value; render(); };
   let tq; $('#fdq').oninput = ()=>{ clearTimeout(tq); tq=setTimeout(()=>{
     S.filtriDoc.q = $('#fdq').value; render();
@@ -1295,6 +1303,8 @@ async function vistaDocumenti(m){
       <div style="flex:1;min-width:180px">${comboCommessaHTML('bsInc','')}</div>
       <input type="text" id="bsTag" placeholder="tag, separati da virgola">
       <button class="btn btn-accent btn-sm" id="bsApplica">Applica</button>
+      <button class="btn btn-sm" id="bsGenerale"
+        style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Segna generali</button>
       <button class="btn btn-sm" id="bsScollega"
         style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Scollega</button>`,
     lega:(scelti)=>{
@@ -1309,6 +1319,15 @@ async function vistaDocumenti(m){
         try{
           await api('/documenti/massivo',{method:'POST',body:JSON.stringify(body)});
           toast(`Aggiornati ${ids.length} documenti`);
+          await caricaBase(); render();
+        }catch(e){ toast(e.message, true); }
+      };
+      $('#bsGenerale').onclick = async ()=>{
+        const ids = scelti();
+        if(!confirm(`Segnare ${ids.length} fatture come costi generali?\n\nPerderanno l'eventuale commessa e si ripartiranno su tutte.`)) return;
+        try{
+          await api('/documenti/massivo',{method:'POST',body:JSON.stringify({ids, costo_generale:true})});
+          toast(`Segnate ${ids.length} fatture come generali`);
           await caricaBase(); render();
         }catch(e){ toast(e.message, true); }
       };
@@ -1361,6 +1380,10 @@ function formDocumento(d){
     <div class="check" id="wrapRit"><input type="checkbox" id="dRit" checked><label for="dRit">Applica ritenuta d'acconto</label></div>
     <div class="check hidden" id="wrapRc"><input type="checkbox" id="dRc" ${e.reverse_charge?'checked':''}><label for="dRc">Reverse charge (IVA neutra)</label></div>
     <div class="check hidden" id="wrapFf"><input type="checkbox" id="dFf" ${e.fornitore_forfettario?'checked':''}><label for="dFf">Fornitore forfettario (nessuna IVA)</label></div>
+    <div class="check hidden" id="wrapGen"><input type="checkbox" id="dGen" ${e.costo_generale?'checked':''}><label for="dGen">Costo generale dell'attività</label></div>
+    <div class="sub hidden" id="notaGen" style="margin:-4px 0 14px">
+      Si ripartisce su tutte le commesse in proporzione ai ricavi. Escluso se scegli una commessa qui sotto.
+    </div>
 
     <div class="field"><label>Commessa</label>
       ${comboCommessaHTML('dInc', e.incarico_id)}
@@ -1388,6 +1411,8 @@ function formDocumento(d){
     $('#wrapRit').classList.toggle('hidden', p);
     $('#wrapRc').classList.toggle('hidden', !p);
     $('#wrapFf').classList.toggle('hidden', !p);
+    $('#wrapGen').classList.toggle('hidden', !p);
+    $('#notaGen').classList.toggle('hidden', !p);
     $('#dAtt').classList.toggle('on', !p);
     $('#dPas').classList.toggle('on', p);
     anteprima();
@@ -1424,6 +1449,8 @@ function formDocumento(d){
   $('#dPas').onclick = ()=>{ $('#dDir').value='passiva'; modo(); };
   ['dImporto','dIva'].forEach(i=> $('#'+i).oninput = anteprima);
   ['dIvaInc','dRit','dRc','dFf'].forEach(i=> $('#'+i).onchange = anteprima);
+  $('#dGen').onchange = ()=>{ if($('#dGen').checked){ $('#dInc').value=''; $('#dIncQ').value=''; } };
+  $('#dIncQ').addEventListener('input', ()=>{ if($('#dIncQ').value.trim()) $('#dGen').checked = false; });
   $('#dTipo').onchange = ()=>{
     if($('#dTipo').value==='TD17'){ $('#dRc').checked = true; }
     anteprima();
@@ -1445,6 +1472,7 @@ function formDocumento(d){
       importo:$('#dImporto').value, iva_aliquota:$('#dIva').value,
       iva_inclusa:$('#dIvaInc').checked, con_ritenuta:$('#dRit').checked,
       reverse_charge:$('#dRc').checked, fornitore_forfettario:$('#dFf').checked,
+      costo_generale:$('#dGen').checked,
       incarico_id:$('#dInc').value||null,
       data_scadenza:$('#dScad').value||null, data_incasso:$('#dIncasso').value||null,
       descrizione:$('#dDesc').value,
@@ -1867,6 +1895,12 @@ async function vistaCosti(m){
         <div class="v">${delta!=null?(delta>0?'+':'')+delta+'%':'—'}</div>
         <div class="n">${prec.totale?eur0(prec.totale):'nessun dato'}</div></div>
     </div>
+
+    ${c.da_classificare.n ? `
+    <div class="err-msg" style="margin-top:16px">
+      ${c.da_classificare.n} fatture per ${eur0(c.da_classificare.totale)} non sono né su una commessa
+      né segnate come costo generale. Rientrano comunque nella ripartizione, ma non hai ancora deciso cosa sono.
+    </div>` : ''}
 
     ${c.senza_tag.n ? `
     <div class="err-msg" style="margin-top:16px;background:var(--accent-wash);color:var(--accent-deep)">
