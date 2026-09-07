@@ -122,6 +122,18 @@ h2{font-size:15px;font-weight:700;margin:28px 0 12px}
 .kpi .k{font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px}
 .kpi .v{font-size:23px;font-weight:700;letter-spacing:-0.02em}
 .kpi .n{font-size:12px;color:var(--muted);margin-top:3px}
+.kpi.xl{padding:22px 26px}
+.kpi.xl .v{font-size:38px}
+.kpi.xl .k{font-size:13px}
+.kpi.lg .v{font-size:29px}
+.kpi.sm{padding:13px 15px}
+.kpi.sm .v{font-size:18px}
+.kpi.sm .k{font-size:11.5px}
+.griglia-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.griglia-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.livello{margin-bottom:12px}
+.eti{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;margin:22px 0 8px}
 .kpi.lead{background:var(--ink);border-color:var(--ink);color:#fff}
 .kpi.lead .k{color:rgba(255,255,255,.65)}
 .kpi.lead .n{color:rgba(255,255,255,.55)}
@@ -308,6 +320,8 @@ td.sel input,th.sel input{width:15px;height:15px;accent-color:var(--accent-deep)
   .side-foot{display:none}
   main{padding:18px 14px 50px}
   .split{grid-template-columns:1fr}
+  .griglia-2,.griglia-3{grid-template-columns:1fr}
+  .kpi.xl .v{font-size:30px}
   .chat-wrap{grid-template-columns:1fr}
   .conv-lista{max-height:150px}
   .row,.row-3{grid-template-columns:1fr}
@@ -606,33 +620,54 @@ async function vistaRiepilogo(m){
       <div class="filters" style="margin:0">${selettoreAnni()}</div>
     </div>
 
-    <div class="kpi-grid">
-      <div class="kpi lead"><div class="k">Margine netto</div><div class="v">${eur0(r.margine_netto)}</div>
-        <div class="n">lordo ${eur0(r.margine_lordo)}</div></div>
-      <div class="kpi"><div class="k">Ricavi</div><div class="v">${eur0(r.ricavi)}</div>
-        <div class="n">imponibile, IVA esclusa</div></div>
-      <div class="kpi"><div class="k">Costi</div><div class="v">${eur0(r.costi)}</div>
+    <div class="livello">
+      <div class="kpi xl"><div class="k">Fatturato</div><div class="v">${eur0(r.fatturato)}</div>
+        <div class="n">totale delle fatture emesse, IVA inclusa</div></div>
+    </div>
+
+    <div class="griglia-2 livello">
+      <div class="kpi lg"><div class="k">Ricavi</div><div class="v">${eur0(r.ricavi)}</div>
+        <div class="n">imponibile: l'IVA è partita di giro, non è tua</div></div>
+      <div class="kpi lg"><div class="k">Costi</div><div class="v">${eur0(r.costi)}</div>
         <div class="n">${r.ricavi ? Math.round(r.costi/r.ricavi*100) : 0}% dei ricavi</div></div>
-      <div class="kpi"><div class="k">Spese per commesse</div><div class="v">${eur0(r.costi_commesse)}</div>
-        <div class="n">${r.costi ? Math.round(r.costi_commesse/r.costi*100) : 0}% dei costi, attribuite direttamente</div></div>
-      <div class="kpi"><div class="k">Spese generali</div><div class="v">${eur0(r.costi_generali)}</div>
-        <div class="n">di struttura, ripartite in proporzione ai ricavi</div></div>
-      <div class="kpi"><div class="k">Da accantonare</div><div class="v">${eur0(r.da_accantonare)}</div>
-        <div class="n">${eur0(r.tasse_stimate)} meno ritenute già subite</div></div>
-      <div class="kpi"><div class="k">Saldo IVA</div><div class="v">${eur0(r.iva_saldo)}</div>
+    </div>
+
+    <div class="griglia-3 livello">
+      <div class="kpi sm"><div class="k">Spese per commesse</div><div class="v">${eur0(r.costi_commesse)}</div>
+        <div class="n">${r.costi ? Math.round(r.costi_commesse/r.costi*100) : 0}% dei costi</div></div>
+      <div class="kpi sm"><div class="k">Spese generali</div><div class="v">${eur0(r.costi_generali)}</div>
+        <div class="n">di struttura, ripartite sui ricavi</div></div>
+      <div class="kpi sm"><div class="k">Costi extra</div><div class="v">${eur0(r.costi_extra)}</div>
+        <div class="n">non deducibili, fuori dai calcoli fiscali</div></div>
+    </div>
+
+    <div class="eti">Risultato</div>
+    <div class="griglia-3 livello">
+      <div class="kpi"><div class="k">Margine lordo</div><div class="v">${eur0(r.margine_lordo)}</div>
+        <div class="n">ricavi meno costi</div></div>
+      <div class="kpi"><div class="k">Margine netto</div><div class="v">${eur0(r.margine_netto)}</div>
+        <div class="n">dopo il ${r.aliquota_tasse}% stimato di imposte</div></div>
+      <div class="kpi lead"><div class="k">Resta davvero</div><div class="v">${eur0(r.resta_davvero)}</div>
+        <div class="n">al netto anche dei costi extra</div></div>
+    </div>
+
+    <div class="eti">Fisco e cassa</div>
+    <div class="griglia-3 livello">
+      <div class="kpi sm"><div class="k">Da accantonare</div><div class="v">${eur0(r.da_accantonare)}</div>
+        <div class="n">${eur0(r.tasse_stimate)} meno ${eur0(r.ritenute_subite)} di ritenute</div></div>
+      <div class="kpi sm"><div class="k">Saldo IVA</div><div class="v">${eur0(r.iva_saldo)}</div>
         <div class="n">${eur0(r.iva_debito)} a debito, ${eur0(r.iva_credito)} a credito</div></div>
-      <div class="kpi"><div class="k">Da incassare</div><div class="v">${eur0(r.da_incassare)}</div>
+      <div class="kpi sm"><div class="k">Da incassare</div><div class="v">${eur0(r.da_incassare)}</div>
         <div class="n">fatture senza data di incasso</div></div>
     </div>
 
-    <div class="kpi-grid" style="margin-top:12px">
-      <div class="kpi lead"><div class="k">Resta davvero</div><div class="v">${eur0(r.resta_davvero)}</div>
-        <div class="n">margine netto meno ${eur0(r.costi_extra)} di costi extra</div></div>
-      <div class="kpi"><div class="k">Compenso orario finale</div>
+    <div class="eti">Tempo</div>
+    <div class="griglia-2 livello">
+      <div class="kpi sm"><div class="k">Ore registrate</div><div class="v">${r.ore_totali}</div>
+        <div class="n">somma degli interventi dell'anno</div></div>
+      <div class="kpi sm"><div class="k">Compenso orario finale</div>
         <div class="v">${r.orario_finale!=null?eur(r.orario_finale):'—'}</div>
-        <div class="n">${r.ore_totali} ore registrate nell'anno</div></div>
-      <div class="kpi"><div class="k">Costi extra</div><div class="v">${eur0(r.costi_extra)}</div>
-        <div class="n">non deducibili, fuori dai calcoli fiscali</div></div>
+        <div class="n">quanto ti resta, diviso le ore</div></div>
     </div>
 
     <h2>Andamento ${S.anno}</h2>
