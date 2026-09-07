@@ -613,6 +613,10 @@ async function vistaRiepilogo(m){
         <div class="n">imponibile, IVA esclusa</div></div>
       <div class="kpi"><div class="k">Costi</div><div class="v">${eur0(r.costi)}</div>
         <div class="n">${r.ricavi ? Math.round(r.costi/r.ricavi*100) : 0}% dei ricavi</div></div>
+      <div class="kpi"><div class="k">Spese per commesse</div><div class="v">${eur0(r.costi_commesse)}</div>
+        <div class="n">${r.costi ? Math.round(r.costi_commesse/r.costi*100) : 0}% dei costi, attribuite direttamente</div></div>
+      <div class="kpi"><div class="k">Spese generali</div><div class="v">${eur0(r.costi_generali)}</div>
+        <div class="n">di struttura, ripartite in proporzione ai ricavi</div></div>
       <div class="kpi"><div class="k">Da accantonare</div><div class="v">${eur0(r.da_accantonare)}</div>
         <div class="n">${eur0(r.tasse_stimate)} meno ritenute già subite</div></div>
       <div class="kpi"><div class="k">Saldo IVA</div><div class="v">${eur0(r.iva_saldo)}</div>
