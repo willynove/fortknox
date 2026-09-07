@@ -169,6 +169,11 @@ CREATE TABLE IF NOT EXISTS documenti (
   UNIQUE (direzione, soggetto_id, numero, data)
 );
 
+-- Marca esplicitamente un costo come spesa generale dell'attivita'.
+-- La matematica non cambia (senza commessa il costo si ripartisce comunque),
+-- ma distingue cio' che e' stato deciso da cio' che non e' ancora classificato.
+ALTER TABLE documenti ADD COLUMN IF NOT EXISTS costo_generale BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE INDEX IF NOT EXISTS idx_doc_direzione ON documenti (direzione);
 CREATE INDEX IF NOT EXISTS idx_doc_data      ON documenti (data);
 CREATE INDEX IF NOT EXISTS idx_doc_soggetto  ON documenti (soggetto_id);
