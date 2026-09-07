@@ -1966,6 +1966,203 @@ app.get('/api/import/storico', wrap(async (req, res) => {
 }));
 
 // ============================================================
+// CHAT
+// Il modello non tocca il database: riceve uno snapshot gia' aggregato
+// dell'anno scelto e ragiona su quello.
+// ============================================================
+
+async function costruisciSnapshot(anno) {
+  const al = await aliquote(anno);
+  const ctx = await contestoAnno(anno);
+
+  const tot = await db.query(`
+    SELECT
+      COALESCE(SUM(CASE WHEN direzione='attiva' THEN imponibile*segno END),0) AS ricavi,
+      COALESCE(SUM(CASE WHEN direzione='passiva' THEN imponibile*segno END),0) AS costi,
+      COALESCE(SUM(CASE WHEN direzione='attiva' THEN ritenuta_importo*segno END),0) AS ritenute,
+      COALESCE(SUM(CASE WHEN direzione='attiva' THEN imposta*segno END),0) AS iva_debito,
+      COALESCE(SUM(CASE WHEN direzione='passiva' AND reverse_charge=FALSE THEN imposta*segno END),0) AS iva_credito,
+      COALESCE(SUM(CASE WHEN direzione='attiva' AND data_incasso IS NULL
+                        THEN (totale_documento-ritenuta_importo)*segno END),0) AS da_incassare
+    FROM documenti WHERE EXTRACT(YEAR FROM data)=$1`, [anno]);
+  const t = tot.rows[0];
+
+  const extra = await db.query(
+    `SELECT COALESCE(SUM(importo),0) AS tot FROM costi_extra WHERE EXTRACT(YEAR FROM data)=$1`, [anno]);
+  const ore = await db.query(
+    `SELECT COALESCE(SUM(ore),0) AS ore FROM interventi WHERE EXTRACT(YEAR FROM data)=$1`, [anno]);
+
+  const commesse = await db.query(`
+    SELECT i.titolo, s.denominazione AS cliente, i.stato, i.ore_previste,
+      COALESCE((SELECT SUM(d.imponibile*d.segno) FROM documenti d
+        WHERE d.incarico_id=i.id AND d.direzione='attiva' AND EXTRACT(YEAR FROM d.data)=$1),0) AS ricavi,
+      COALESCE((SELECT SUM(d.imponibile*d.segno) FROM documenti d
+        WHERE d.incarico_id=i.id AND d.direzione='passiva' AND EXTRACT(YEAR FROM d.data)=$1),0) AS costi,
+      COALESCE((SELECT SUM(v.ore) FROM interventi v WHERE v.incarico_id=i.id),0) AS ore,
+      COALESCE((SELECT string_agg(tp.nome,', ') FROM incarico_tipologie it
+        JOIN tipologie tp ON tp.id=it.tipologia_id WHERE it.incarico_id=i.id),'') AS tipologie
+    FROM incarichi i JOIN soggetti s ON s.id=i.soggetto_id`, [anno]);
+
+  const clienti = await db.query(`
+    SELECT s.denominazione, s.tipo, s.sostituto_imposta,
+      COALESCE((SELECT SUM(d.imponibile*d.segno) FROM documenti d
+        WHERE d.soggetto_id=s.id AND d.direzione='attiva' AND EXTRACT(YEAR FROM d.data)=$1),0) AS ricavi,
+      (SELECT AVG(d.data_incasso-d.data) FROM documenti d
+        WHERE d.soggetto_id=s.id AND d.direzione='attiva' AND d.data_incasso IS NOT NULL) AS giorni,
+      COALESCE((SELECT SUM(v.ore) FROM interventi v JOIN incarichi i ON i.id=v.incarico_id
+        WHERE i.soggetto_id=s.id),0) AS ore
+    FROM soggetti s WHERE s.is_cliente=TRUE`, [anno]);
+
+  const fornitori = await db.query(`
+    SELECT s.denominazione, SUM(d.imponibile*d.segno) AS totale, COUNT(*) AS n
+    FROM documenti d JOIN soggetti s ON s.id=d.soggetto_id
+    WHERE d.direzione='passiva' AND EXTRACT(YEAR FROM d.data)=$1
+    GROUP BY s.denominazione ORDER BY 2 DESC LIMIT 30`, [anno]);
+
+  const perTag = await db.query(`
+    SELECT tg.nome, SUM(d.imponibile*d.segno) AS totale
+    FROM documenti d JOIN documento_tags dt ON dt.documento_id=d.id
+    JOIN tags tg ON tg.id=dt.tag_id
+    WHERE d.direzione='passiva' AND EXTRACT(YEAR FROM d.data)=$1
+    GROUP BY tg.nome ORDER BY 2 DESC`, [anno]);
+
+  const extraCat = await db.query(`
+    SELECT COALESCE(NULLIF(categoria,''),'senza categoria') AS categoria, SUM(importo) AS totale
+    FROM costi_extra WHERE EXTRACT(YEAR FROM data)=$1 GROUP BY 1 ORDER BY 2 DESC`, [anno]);
+
+  const trim = await db.query(`
+    SELECT EXTRACT(QUARTER FROM data)::int AS q,
+      COALESCE(SUM(CASE WHEN direzione='attiva' THEN imposta*segno END),0) AS debito,
+      COALESCE(SUM(CASE WHEN direzione='passiva' AND reverse_charge=FALSE THEN imposta*segno END),0) AS credito
+    FROM documenti WHERE EXTRACT(YEAR FROM data)=$1 GROUP BY 1 ORDER BY 1`, [anno]);
+
+  const ricavi = Number(t.ricavi);
+  const costi = Number(t.costi);
+  const lordo = r2(ricavi - costi);
+  const tasse = r2(lordo * al.aliquota_tasse / 100);
+  const costiExtra = r2(Number(extra.rows[0].tot));
+  const oreTot = Number(ore.rows[0].ore);
+
+  return {
+    anno,
+    aliquote: al,
+    totali: {
+      ricavi: r2(ricavi), costi: r2(costi), margine_lordo: lordo,
+      tasse_stimate: tasse, margine_netto: r2(lordo - tasse),
+      costi_extra: costiExtra, resta_davvero: r2(lordo - tasse - costiExtra),
+      ritenute_subite: r2(Number(t.ritenute)),
+      da_accantonare: r2(tasse - Number(t.ritenute)),
+      iva_saldo: r2(Number(t.iva_debito) - Number(t.iva_credito)),
+      da_incassare: r2(Number(t.da_incassare)),
+      ore_totali: r2(oreTot),
+      orario_finale: oreTot > 0 ? r2((lordo - tasse - costiExtra) / oreTot) : null,
+      incidenza_costi: ricavi > 0 ? r2(costi / ricavi * 100) : null
+    },
+    commesse: commesse.rows.map((c) => {
+      const rc = Number(c.ricavi), cs = Number(c.costi), o = Number(c.ore);
+      const peso = ctx.ricaviAnno > 0 ? rc / ctx.ricaviAnno : 0;
+      const lo = r2(rc - cs - ctx.generali * peso);
+      const ne = r2(lo * (1 - ctx.aliquota / 100));
+      const fi = r2(ne - ctx.extra * peso);
+      return {
+        titolo: c.titolo, cliente: c.cliente, stato: c.stato,
+        tipologie: c.tipologie, ricavi: r2(rc), costi_diretti: r2(cs),
+        margine_finale: fi, ore: r2(o),
+        ore_previste: c.ore_previste ? Number(c.ore_previste) : null,
+        orario_finale: o > 0 ? r2(fi / o) : null
+      };
+    }).filter((c) => c.ricavi || c.ore),
+    clienti: clienti.rows.map((c) => ({
+      nome: c.denominazione, tipo: c.tipo,
+      sostituto_imposta: c.sostituto_imposta,
+      ricavi: r2(Number(c.ricavi)), ore: r2(Number(c.ore)),
+      giorni_medi_incasso: c.giorni === null ? null : Math.round(Number(c.giorni))
+    })).filter((c) => c.ricavi),
+    fornitori: fornitori.rows.map((f) => ({
+      nome: f.denominazione, totale: r2(Number(f.totale)), fatture: Number(f.n)
+    })),
+    costi_per_tag: perTag.rows.map((x) => ({ tag: x.nome, totale: r2(Number(x.totale)) })),
+    costi_extra_per_categoria: extraCat.rows.map((x) => ({
+      categoria: x.categoria, totale: r2(Number(x.totale))
+    })),
+    iva_trimestrale: trim.rows.map((x) => ({
+      trimestre: x.q, debito: r2(Number(x.debito)), credito: r2(Number(x.credito)),
+      saldo: r2(Number(x.debito) - Number(x.credito))
+    }))
+  };
+}
+
+app.get('/api/chat/snapshot', wrap(async (req, res) => {
+  const anno = Number(req.query.anno) || new Date().getFullYear();
+  res.json(await costruisciSnapshot(anno));
+}));
+
+const ISTRUZIONI_CHAT = `Sei l'analista di Fort Knox, il gestionale di un libero professionista italiano
+che lavora nella comunicazione: siti web, social media, grafica, formazione, foto e video.
+
+Rispondi in italiano, in modo diretto e conciso. Niente preamboli, niente elenchi di ovvieta'.
+Se una domanda non trova risposta nei dati, dillo invece di inventare.
+
+Come leggere i numeri:
+- I ricavi sono imponibili, IVA esclusa. L'IVA e' partita di giro e non e' guadagno.
+- La ritenuta d'acconto e' un anticipo IRPEF: sposta quando si incassa, non quanto si guadagna.
+  Non va mai sottratta dal margine.
+- Le imposte sono una stima forfettaria applicata al margine, non ai ricavi.
+- I costi extra non sono deducibili: si sottraggono dopo le imposte.
+- I costi generali si ripartiscono sulle commesse in proporzione ai ricavi.
+- Il compenso orario finale e' il numero piu' importante per capire se una commessa conviene.
+
+Quando i dati suggeriscono un problema, dillo con franchezza: un cliente che rende poco,
+una commessa in perdita, un fornitore che pesa troppo. Ma distingui sempre i fatti
+dalle ipotesi, e ricorda che le ore sono registrate a mano e possono essere incomplete.
+
+Non sei un commercialista: per adempimenti e aliquote reali rimanda al suo parere.`;
+
+app.post('/api/chat', wrap(async (req, res) => {
+  const chiave = process.env.ANTHROPIC_API_KEY;
+  if (!chiave) {
+    return res.status(400).json({ error: 'ANTHROPIC_API_KEY non impostata tra le variabili del servizio' });
+  }
+  const anno = Number(req.body.anno) || new Date().getFullYear();
+  const messaggi = Array.isArray(req.body.messaggi) ? req.body.messaggi.slice(-20) : [];
+  if (!messaggi.length) return res.status(400).json({ error: 'Nessun messaggio' });
+
+  const snapshot = await costruisciSnapshot(anno);
+
+  const corpo = {
+    model: process.env.CHAT_MODEL || 'claude-sonnet-4-6',
+    max_tokens: 1500,
+    system: ISTRUZIONI_CHAT + '\n\nDati aggregati del ' + anno + ':\n'
+      + JSON.stringify(snapshot),
+    messages: messaggi.map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').slice(0, 4000)
+    }))
+  };
+
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': chiave,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify(corpo)
+  });
+
+  const dati = await r.json();
+  if (!r.ok) {
+    return res.status(502).json({
+      error: (dati && dati.error && dati.error.message) || 'Errore nella chiamata al modello'
+    });
+  }
+  const testo = (dati.content || [])
+    .filter((b) => b.type === 'text').map((b) => b.text).join('\n');
+
+  res.json({ testo, uso: dati.usage || null });
+}));
+
+// ============================================================
 // STATICI E AVVIO
 // ============================================================
 
