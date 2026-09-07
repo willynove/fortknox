@@ -537,6 +537,39 @@ function legaAnno(){
   if(s) s.onchange = ()=>{ S.anno = Number(s.value); render(); };
 }
 
+// ---------- SELEZIONE MULTIPLA RIUTILIZZABILE ----------
+// Le tre schermate a elenco condividono la stessa barra: cambiano solo
+// i comandi al centro e cosa fa il pulsante Applica.
+function attivaSelezione(m, cfg){
+  const caselle = ()=> [...m.querySelectorAll('.'+cfg.classe)];
+  const scelti  = ()=> caselle().filter(c=>c.checked).map(c=>Number(c.value));
+
+  function chiudi(){
+    caselle().forEach(c=> c.checked = false);
+    const st = $('#'+cfg.idTutti); if(st) st.checked = false;
+    $('#barraHost').innerHTML = '';
+  }
+
+  function aggiorna(){
+    const n = scelti().length;
+    const box = $('#barraHost');
+    if(!n){ box.innerHTML = ''; return; }
+    if($('#bsN')){ $('#bsN').textContent = cfg.etichetta(n); return; }
+    box.innerHTML = `
+      <div class="barra-sel">
+        <span class="n" id="bsN">${cfg.etichetta(n)}</span>
+        ${cfg.azioni()}
+        <button class="chiudi" id="bsChiudi">&times;</button>
+      </div>`;
+    $('#bsChiudi').onclick = chiudi;
+    cfg.lega(scelti, chiudi);
+  }
+
+  caselle().forEach(c=> c.onchange = aggiorna);
+  const st = $('#'+cfg.idTutti);
+  if(st) st.onchange = ()=>{ caselle().forEach(c=> c.checked = st.checked); aggiorna(); };
+}
+
 // ============================================================
 // VISTA: RIEPILOGO
 // ============================================================
@@ -694,12 +727,14 @@ async function vistaCommesse(m){
     ${inc.length ? `
     <div class="panel"><table>
       <thead><tr>
+        <th class="sel"><input type="checkbox" id="selTuttiC"></th>
         <th>Commessa</th><th>Cliente</th><th>Stato</th>
         <th class="num">Ricavi</th><th class="num">Costi</th>
         <th class="num">Margine netto</th><th class="num">Ore</th><th class="num">€/h finale</th>
       </tr></thead>
       <tbody>${inc.map(i=>`
         <tr class="clickable" data-inc="${i.id}">
+          <td class="sel"><input type="checkbox" class="selInc" value="${i.id}"></td>
           <td class="strong">${esc(i.titolo)}</td>
           <td class="dim">${esc(i.cliente)}</td>
           <td><span class="pill ${i.stato==='in_corso'?'good':''}">${i.stato.replace('_',' ')}</span></td>
@@ -719,6 +754,45 @@ async function vistaCommesse(m){
   `;
 
   $('#btnNuovaC').onclick = ()=> formCommessa();
+  attivaSelezione(m, {
+    classe:'selInc', idTutti:'selTuttiC',
+    etichetta:(n)=> n+' commess'+(n===1?'a':'e'),
+    azioni:()=> `
+      <select id="bsStato" style="width:auto">
+        <option value="">Stato invariato</option>
+        ${['in_corso','concluso','sospeso','annullato'].map(x=>`<option value="${x}">${x.replace('_',' ')}</option>`).join('')}
+      </select>
+      <select id="bsTip" style="width:auto">
+        <option value="">Aggiungi tipologia…</option>
+        ${S.tipologie.map(t=>`<option value="${t.id}">${esc(t.nome)}</option>`).join('')}
+      </select>
+      <button class="btn btn-accent btn-sm" id="bsApplica">Applica</button>
+      <button class="btn btn-sm" id="bsElimina"
+        style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Elimina</button>`,
+    lega:(scelti)=>{
+      $('#bsApplica').onclick = async ()=>{
+        const ids = scelti();
+        const body = { ids };
+        if($('#bsStato').value) body.stato = $('#bsStato').value;
+        if($('#bsTip').value) body.tipologie = [Number($('#bsTip').value)];
+        if(!body.stato && !body.tipologie) return toast('Scegli uno stato o una tipologia', true);
+        try{
+          await api('/incarichi/massivo',{method:'POST',body:JSON.stringify(body)});
+          toast(`Aggiornate ${ids.length} commesse`);
+          await caricaBase(); render();
+        }catch(e){ toast(e.message, true); }
+      };
+      $('#bsElimina').onclick = async ()=>{
+        const ids = scelti();
+        if(!confirm(`Eliminare ${ids.length} commesse?\n\nI documenti collegati restano, perdono solo il riferimento.`)) return;
+        try{
+          const r = await api('/incarichi/massivo',{method:'POST',body:JSON.stringify({ids, elimina:true})});
+          toast(`Eliminate ${r.eliminate} commesse, ${r.scollegati} documenti scollegati`);
+          await caricaBase(); render();
+        }catch(e){ toast(e.message, true); }
+      };
+    }
+  });
   $('#btnCsvC').onclick = ()=> esportaCsv('commesse-'+S.anno,
     ['Commessa','Cliente','Stato','Tipologie','Inizio','Fine','Ricavi','Costi diretti',
      'Quota generali','Margine lordo','Margine netto','Costi extra','Margine finale',
@@ -1179,64 +1253,41 @@ async function vistaDocumenti(m){
     formDocumento(d);
   });
 
-  // ---- selezione multipla ----
-  const caselle = ()=> [...m.querySelectorAll('.selDoc')];
-  const scelti = ()=> caselle().filter(c=>c.checked).map(c=>Number(c.value));
-
-  function aggiornaBarra(){
-    const n = scelti().length;
-    const box = $('#barraHost');
-    if(!n){ box.innerHTML=''; return; }
-    const esistente = $('#bsN');
-    if(esistente){ esistente.textContent = n + (n===1?' documento':' documenti'); return; }
-    box.innerHTML = `
-      <div class="barra-sel">
-        <span class="n" id="bsN">${n} document${n===1?'o':'i'}</span>
-        <div style="flex:1;min-width:180px">${comboCommessaHTML('bsInc','')}</div>
-        <input type="text" id="bsTag" placeholder="tag, separati da virgola">
-        <button class="btn btn-accent btn-sm" id="bsApplica">Applica</button>
-        <button class="btn btn-sm" id="bsScollega"
-          style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Scollega</button>
-        <button class="chiudi" id="bsChiudi">&times;</button>
-      </div>`;
-    legaCombo('bsInc');
-
-    $('#bsChiudi').onclick = ()=>{
-      caselle().forEach(c=>c.checked=false);
-      const st = $('#selTutti'); if(st) st.checked = false;
-      box.innerHTML='';
-    };
-    $('#bsApplica').onclick = async ()=>{
-      const ids = scelti();
-      const body = { ids };
-      const inc = $('#bsInc').value;
-      if(inc) body.incarico_id = inc;
-      const tags = $('#bsTag').value.split(',').map(x=>x.trim()).filter(Boolean);
-      if(tags.length) body.tags = tags;
-      if(!body.incarico_id && !body.tags) return toast('Scegli una commessa o dei tag', true);
-      try{
-        await api('/documenti/massivo',{method:'POST',body:JSON.stringify(body)});
-        toast(`Aggiornati ${ids.length} documenti`);
-        await caricaBase(); render();
-      }catch(e){ toast(e.message, true); }
-    };
-    $('#bsScollega').onclick = async ()=>{
-      const ids = scelti();
-      if(!confirm(`Togliere la commessa a ${ids.length} documenti?`)) return;
-      try{
-        await api('/documenti/massivo',{method:'POST',body:JSON.stringify({ids, incarico_id:''})});
-        toast(`Scollegati ${ids.length} documenti`);
-        await caricaBase(); render();
-      }catch(e){ toast(e.message, true); }
-    };
-  }
-
-  caselle().forEach(c=> c.onchange = aggiornaBarra);
-  const selTutti = $('#selTutti');
-  if(selTutti) selTutti.onchange = ()=>{
-    caselle().forEach(c=> c.checked = selTutti.checked);
-    aggiornaBarra();
-  };
+  attivaSelezione(m, {
+    classe:'selDoc', idTutti:'selTutti',
+    etichetta:(n)=> n+' document'+(n===1?'o':'i'),
+    azioni:()=> `
+      <div style="flex:1;min-width:180px">${comboCommessaHTML('bsInc','')}</div>
+      <input type="text" id="bsTag" placeholder="tag, separati da virgola">
+      <button class="btn btn-accent btn-sm" id="bsApplica">Applica</button>
+      <button class="btn btn-sm" id="bsScollega"
+        style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Scollega</button>`,
+    lega:(scelti)=>{
+      legaCombo('bsInc');
+      $('#bsApplica').onclick = async ()=>{
+        const ids = scelti();
+        const body = { ids };
+        if($('#bsInc').value) body.incarico_id = $('#bsInc').value;
+        const tags = $('#bsTag').value.split(',').map(x=>x.trim()).filter(Boolean);
+        if(tags.length) body.tags = tags;
+        if(body.incarico_id===undefined && !body.tags) return toast('Scegli una commessa o dei tag', true);
+        try{
+          await api('/documenti/massivo',{method:'POST',body:JSON.stringify(body)});
+          toast(`Aggiornati ${ids.length} documenti`);
+          await caricaBase(); render();
+        }catch(e){ toast(e.message, true); }
+      };
+      $('#bsScollega').onclick = async ()=>{
+        const ids = scelti();
+        if(!confirm(`Togliere la commessa a ${ids.length} documenti?`)) return;
+        try{
+          await api('/documenti/massivo',{method:'POST',body:JSON.stringify({ids, incarico_id:''})});
+          toast(`Scollegati ${ids.length} documenti`);
+          await caricaBase(); render();
+        }catch(e){ toast(e.message, true); }
+      };
+    }
+  });
 }
 
 // ---------- FORM DOCUMENTO ----------
@@ -1855,9 +1906,11 @@ async function vistaExtra(m){
       <div>
         ${d.voci.length ? `
         <div class="panel"><table>
-          <thead><tr><th>Data</th><th>Descrizione</th><th>Categoria</th><th>Commessa</th><th class="num">Importo</th><th></th></tr></thead>
+          <thead><tr><th class="sel"><input type="checkbox" id="selTuttiE"></th>
+            <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Commessa</th><th class="num">Importo</th><th></th></tr></thead>
           <tbody>${d.voci.map(v=>`
-            <tr><td class="dim mono">${dt(v.data)}</td>
+            <tr><td class="sel"><input type="checkbox" class="selExt" value="${v.id}"></td>
+              <td class="dim mono">${dt(v.data)}</td>
               <td class="strong">${esc(v.descrizione)}${v.note?`<div class="sub">${esc(v.note)}</div>`:''}</td>
               <td>${v.categoria?`<span class="tagchip">${esc(v.categoria)}</span>`:'<span class="dim">—</span>'}</td>
               <td class="dim">${v.incarico?esc(v.incarico):'<span class="dim">ripartito</span>'}</td>
@@ -1891,6 +1944,39 @@ async function vistaExtra(m){
     ['Data','Descrizione','Categoria','Commessa','Importo','Note'],
     d.voci.map(v=>[v.data, v.descrizione, v.categoria||'', v.incarico||'',
       Number(v.importo), v.note||'']));
+  attivaSelezione(m, {
+    classe:'selExt', idTutti:'selTuttiE',
+    etichetta:(n)=> n+' voc'+(n===1?'e':'i'),
+    azioni:()=> `
+      <div style="flex:1;min-width:180px">${comboCommessaHTML('bsInc','')}</div>
+      <input type="text" id="bsCat" placeholder="categoria">
+      <button class="btn btn-accent btn-sm" id="bsApplica">Applica</button>
+      <button class="btn btn-sm" id="bsElimina"
+        style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Elimina</button>`,
+    lega:(scelti)=>{
+      legaCombo('bsInc');
+      $('#bsApplica').onclick = async ()=>{
+        const ids = scelti();
+        const body = { ids };
+        if($('#bsInc').value) body.incarico_id = $('#bsInc').value;
+        if($('#bsCat').value.trim()) body.categoria = $('#bsCat').value.trim();
+        if(body.incarico_id===undefined && !body.categoria) return toast('Scegli una commessa o una categoria', true);
+        try{
+          await api('/costi-extra/massivo',{method:'POST',body:JSON.stringify(body)});
+          toast(`Aggiornate ${ids.length} voci`);
+          render();
+        }catch(e){ toast(e.message, true); }
+      };
+      $('#bsElimina').onclick = async ()=>{
+        const ids = scelti();
+        if(!confirm(`Eliminare ${ids.length} voci?`)) return;
+        try{
+          await api('/costi-extra/massivo',{method:'POST',body:JSON.stringify({ids, elimina:true})});
+          toast(`Eliminate ${ids.length} voci`); render();
+        }catch(e){ toast(e.message, true); }
+      };
+    }
+  });
   const apri = ()=> formExtra();
   if($('#btnNuovoE')) $('#btnNuovoE').onclick = apri;
   if($('#btnPrimoE')) $('#btnPrimoE').onclick = apri;
