@@ -327,6 +327,25 @@ CREATE INDEX IF NOT EXISTS idx_chat_msg_conv ON chat_messaggi (conversazione_id,
 CREATE INDEX IF NOT EXISTS idx_chat_conv_agg ON chat_conversazioni (updated_at DESC);
 
 -- ------------------------------------------------------------
+-- COMMESSE FUTURE
+-- Importi previsti ma non ancora fatturati. Non entrano in nessun
+-- calcolo fiscale o di margine: servono solo a vedere cosa arriva.
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS commesse_future (
+  id          SERIAL PRIMARY KEY,
+  descrizione TEXT NOT NULL,
+  importo     NUMERIC(14,2) NOT NULL CHECK (importo > 0),
+  iva_inclusa BOOLEAN NOT NULL DEFAULT FALSE,
+  mese        INTEGER NOT NULL CHECK (mese BETWEEN 1 AND 12),
+  anno        INTEGER NOT NULL,
+  note        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_future_periodo ON commesse_future (anno, mese);
+
+-- ------------------------------------------------------------
 -- LOG IMPORT
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS import_log (
