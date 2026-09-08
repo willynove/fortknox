@@ -1104,6 +1104,18 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
   );
   const ore = Number(oreQ.rows[0].ore);
 
+  // previsioni: fuori da ogni calcolo, solo informative
+  const fut = await db.query(
+    'SELECT importo, iva_inclusa, mese FROM commesse_future WHERE anno = $1', [anno]);
+  const aliqIva = al.aliquota_iva || 22;
+  const meseOra = (anno === new Date().getFullYear()) ? new Date().getMonth() + 1 : 1;
+  const impPrev = (v) => (v.iva_inclusa
+    ? Number(v.importo) / (1 + aliqIva / 100) : Number(v.importo));
+  const previstoTot = r2(fut.rows.reduce((s, v) => s + impPrev(v), 0));
+  const previstoDaVenire = r2(fut.rows
+    .filter((v) => Number(v.mese) >= meseOra)
+    .reduce((s, v) => s + impPrev(v), 0));
+
   // andamento mensile di ricavi e costi deducibili
   const mens = await db.query(`
     SELECT EXTRACT(MONTH FROM data)::int AS mese,
@@ -1171,6 +1183,10 @@ app.get('/api/riepilogo', wrap(async (req, res) => {
     ore_totali: r2(ore),
     orario_finale: ore > 0 ? r2(restaDavvero / ore) : null,
     aliquota_tasse: al.aliquota_tasse,
+    previsto: previstoTot,
+    previsto_da_venire: previstoDaVenire,
+    previsto_voci: fut.rows.length,
+    ricavi_piu_previsto: r2(ricavi + previstoDaVenire),
     mensile,
     confronto: {
       anno: anno - 1,
@@ -1358,6 +1374,120 @@ app.post('/api/costi-extra/massivo', wrap(async (req, res) => {
       [String(req.body.categoria).trim(), ids]);
   }
   res.json({ ok: true, voci: ids.length });
+}));
+
+// ============================================================
+// COMMESSE FUTURE
+// Importi previsti: restano fuori da margini, IVA e imposte.
+// ============================================================
+
+app.get('/api/future', wrap(async (req, res) => {
+  const anno = Number(req.query.anno) || new Date().getFullYear();
+  const al = await aliquote(anno);
+  const aliqIva = al.aliquota_iva || 22;
+
+  const { rows } = await db.query(
+    'SELECT * FROM commesse_future WHERE anno = $1 ORDER BY mese, id', [anno]
+  );
+
+  const voci = rows.map((v) => {
+    const importo = Number(v.importo);
+    const imponibile = v.iva_inclusa ? r2(importo / (1 + aliqIva / 100)) : r2(importo);
+    return {
+      ...v,
+      importo,
+      imponibile,
+      lordo: v.iva_inclusa ? r2(importo) : r2(importo * (1 + aliqIva / 100))
+    };
+  });
+
+  const mesi = Array.from({ length: 12 }, (_, i) => {
+    const del = voci.filter((v) => v.mese === i + 1);
+    return {
+      mese: i + 1,
+      n: del.length,
+      imponibile: r2(del.reduce((s, v) => s + v.imponibile, 0)),
+      lordo: r2(del.reduce((s, v) => s + v.lordo, 0))
+    };
+  });
+
+  // quanto e' ancora davanti: solo i mesi non ancora conclusi
+  const oggi = new Date();
+  const meseCorrente = (anno === oggi.getFullYear()) ? oggi.getMonth() + 1 : 1;
+  const daVenire = voci.filter((v) => anno > oggi.getFullYear() || v.mese >= meseCorrente);
+
+  // anni con almeno una previsione, per il selettore
+  const anni = await db.query('SELECT DISTINCT anno FROM commesse_future ORDER BY anno DESC');
+
+  res.json({
+    anno,
+    aliquota_iva: aliqIva,
+    voci,
+    mesi,
+    anni: anni.rows.map((a) => a.anno),
+    totale_imponibile: r2(voci.reduce((s, v) => s + v.imponibile, 0)),
+    totale_lordo: r2(voci.reduce((s, v) => s + v.lordo, 0)),
+    da_venire_imponibile: r2(daVenire.reduce((s, v) => s + v.imponibile, 0)),
+    mese_corrente: meseCorrente
+  });
+}));
+
+app.post('/api/future', wrap(async (req, res) => {
+  const b = req.body;
+  if (!b.descrizione || !num(b.importo)) {
+    return res.status(400).json({ error: 'Descrizione e importo sono obbligatori' });
+  }
+  const oggi = new Date();
+  const { rows } = await db.query(
+    `INSERT INTO commesse_future (descrizione, importo, iva_inclusa, mese, anno, note)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [String(b.descrizione).trim(), num(b.importo), !!b.iva_inclusa,
+      Number(b.mese) || oggi.getMonth() + 1, Number(b.anno) || oggi.getFullYear(),
+      b.note || null]
+  );
+  res.json(rows[0]);
+}));
+
+app.put('/api/future/:id', wrap(async (req, res) => {
+  const b = req.body;
+  const { rows } = await db.query(
+    `UPDATE commesse_future SET
+       descrizione = COALESCE($1, descrizione),
+       importo = COALESCE($2, importo),
+       iva_inclusa = COALESCE($3, iva_inclusa),
+       mese = COALESCE($4, mese),
+       anno = COALESCE($5, anno),
+       note = COALESCE($6, note),
+       updated_at = NOW()
+     WHERE id = $7 RETURNING *`,
+    [b.descrizione || null,
+      b.importo === undefined || b.importo === '' ? null : num(b.importo),
+      b.iva_inclusa === undefined ? null : !!b.iva_inclusa,
+      b.mese === undefined ? null : Number(b.mese),
+      b.anno === undefined ? null : Number(b.anno),
+      b.note === undefined ? null : b.note, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Voce non trovata' });
+  res.json(rows[0]);
+}));
+
+app.post('/api/future/:id/duplica', wrap(async (req, res) => {
+  const { rows } = await db.query(
+    `INSERT INTO commesse_future (descrizione, importo, iva_inclusa, mese, anno, note)
+     SELECT descrizione, importo, iva_inclusa,
+            COALESCE($2, mese), COALESCE($3, anno), note
+     FROM commesse_future WHERE id = $1 RETURNING *`,
+    [req.params.id,
+      req.body.mese === undefined ? null : Number(req.body.mese),
+      req.body.anno === undefined ? null : Number(req.body.anno)]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Voce non trovata' });
+  res.json(rows[0]);
+}));
+
+app.delete('/api/future/:id', wrap(async (req, res) => {
+  await db.query('DELETE FROM commesse_future WHERE id = $1', [req.params.id]);
+  res.json({ ok: true });
 }));
 
 // ============================================================
