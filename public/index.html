@@ -394,6 +394,7 @@ const eur0 = (n)=> new Intl.NumberFormat('it-IT',{maximumFractionDigits:0}).form
 const dt = (d)=> d ? new Date(d).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
 const oggi = ()=> new Date().toISOString().slice(0,10);
 const NOMI_MESI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+const MESI_LUNGHI = ['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
 
 async function api(path, opts){
   opts = opts || {};
@@ -497,6 +498,7 @@ const VOCI = [
   {id:'documenti', t:'Fatture',   i:'<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>'},
   {id:'costi',     t:'Costi',     i:'<path d="M3 17l5-5 4 3 8-8M21 7h-5M21 7v5"/>'},
   {id:'extra',     t:'Extra',     i:'<path d="M12 5v14M5 12h14"/>'},
+  {id:'future',    t:'Future',    i:'<path d="M12 8v5l3 2M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/>'},
   {id:'preventivo',t:'Preventivo',i:'<path d="M7 3h10v18H7zM10 7h4M10 11h4M10 15h2"/>'},
   {id:'fisco',     t:'Fisco',      i:'<path d="M4 20h16M6 20V9l6-5 6 5v11M10 20v-6h4v6"/>'},
   {id:'chat',      t:'Chat',       i:'<path d="M4 5h16v11H9l-5 4V5z"/>'},
@@ -541,6 +543,7 @@ async function render(){
     else if(S.vista==='documenti') await vistaDocumenti(m);
     else if(S.vista==='costi') await vistaCosti(m);
     else if(S.vista==='extra') await vistaExtra(m);
+    else if(S.vista==='future') await vistaFuture(m);
     else if(S.vista==='preventivo') await vistaPreventivo(m);
     else if(S.vista==='fisco') await vistaFisco(m);
     else if(S.vista==='chat') await vistaChat(m);
@@ -660,6 +663,17 @@ async function vistaRiepilogo(m){
       <div class="kpi sm"><div class="k">Da incassare</div><div class="v">${eur0(r.da_incassare)}</div>
         <div class="n">fatture senza data di incasso</div></div>
     </div>
+
+    ${r.previsto_voci ? `
+    <div class="eti">Previsto</div>
+    <div class="griglia-3 livello">
+      <div class="kpi sm"><div class="k">Previsto ${S.anno}</div><div class="v">${eur0(r.previsto)}</div>
+        <div class="n">${r.previsto_voci} voci in commesse future</div></div>
+      <div class="kpi sm"><div class="k">Ancora da venire</div><div class="v">${eur0(r.previsto_da_venire)}</div>
+        <div class="n">solo i mesi non ancora passati</div></div>
+      <div class="kpi sm"><div class="k">Ricavi più previsto</div><div class="v">${eur0(r.ricavi_piu_previsto)}</div>
+        <div class="n">proiezione, non un dato contabile</div></div>
+    </div>` : ''}
 
     <div class="eti">Tempo</div>
     <div class="griglia-2 livello">
@@ -2180,6 +2194,156 @@ async function formExtra(v){
       v ? await api('/costi-extra/'+v.id,{method:'PUT',body:JSON.stringify(body)})
         : await api('/costi-extra',{method:'POST',body:JSON.stringify(body)});
       chiudiModal(); toast('Spesa salvata'); render();
+    }catch(err){ toast(err.message, true); }
+  };
+}
+
+// ============================================================
+// VISTA: COMMESSE FUTURE
+// Importi previsti: nessun effetto su margini, IVA o imposte.
+// ============================================================
+async function vistaFuture(m){
+  const f = await api('/future?anno='+S.anno);
+  const maxMese = Math.max(...f.mesi.map(x=>x.imponibile), 1);
+
+  m.innerHTML = `
+    <div class="head">
+      <div><h1>Commesse future ${S.anno}</h1>
+        <div class="sub">Importi previsti e non ancora fatturati. Non entrano in margini, IVA né imposte.</div></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        ${selettoreAnni()}
+        <button class="btn btn-ghost" id="btnCsvFu">Esporta CSV</button>
+        <button class="btn btn-accent" id="btnNuovaFu">Nuova previsione</button>
+      </div>
+    </div>
+
+    <div class="griglia-3 livello">
+      <div class="kpi lg lead"><div class="k">Previsto ${S.anno}</div>
+        <div class="v">${eur0(f.totale_imponibile)}</div>
+        <div class="n">imponibile · ${eur0(f.totale_lordo)} con IVA</div></div>
+      <div class="kpi"><div class="k">Ancora da venire</div>
+        <div class="v">${eur0(f.da_venire_imponibile)}</div>
+        <div class="n">da ${MESI_LUNGHI[f.mese_corrente-1]} in poi</div></div>
+      <div class="kpi"><div class="k">Voci</div><div class="v">${f.voci.length}</div>
+        <div class="n">media ${eur0(f.voci.length?f.totale_imponibile/f.voci.length:0)} a voce</div></div>
+    </div>
+
+    <h2>Per mese</h2>
+    <div class="box">
+      <div style="display:flex;align-items:flex-end;gap:8px;height:130px">
+        ${f.mesi.map(x=>`
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px"
+               title="${MESI_LUNGHI[x.mese-1]}: ${eur0(x.imponibile)}">
+            <span style="font-size:10px;color:var(--muted)">${x.imponibile?eur0(x.imponibile).replace(' €',''):''}</span>
+            <div style="width:100%;background:${x.imponibile?'var(--accent)':'var(--line-soft)'};
+              height:${Math.max(2, Math.round(x.imponibile/maxMese*96))}px;border-radius:3px 3px 0 0"></div>
+            <span style="font-size:10.5px;color:var(--muted)">${NOMI_MESI[x.mese-1]}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <h2>Elenco</h2>
+    ${f.voci.length ? `
+    <div class="panel"><table>
+      <thead><tr><th>Mese</th><th>Descrizione</th><th class="num">Importo</th>
+        <th class="num">Imponibile</th><th class="num">Con IVA</th><th></th></tr></thead>
+      <tbody>${f.voci.map(v=>`
+        <tr><td class="dim">${MESI_LUNGHI[v.mese-1]}</td>
+          <td class="strong">${esc(v.descrizione)}${v.note?`<div class="sub">${esc(v.note)}</div>`:''}</td>
+          <td class="num mono">${eur(v.importo)} <span class="dim">${v.iva_inclusa?'ivato':'+IVA'}</span></td>
+          <td class="num mono strong">${eur(v.imponibile)}</td>
+          <td class="num mono dim">${eur(v.lordo)}</td>
+          <td class="num" style="white-space:nowrap">
+            <button class="btn btn-ghost btn-sm" data-dupfu="${v.id}">Duplica</button>
+            <button class="btn btn-ghost btn-sm" data-modfu="${v.id}">Modifica</button>
+            <button class="btn btn-danger btn-sm" data-delfu="${v.id}">Elimina</button>
+          </td></tr>`).join('')}
+      </tbody></table></div>` : `
+    <div class="panel"><div class="empty">
+      <p>Nessuna previsione per il ${S.anno}.</p>
+      <button class="btn btn-accent btn-sm" id="btnPrimaFu">Aggiungi la prima</button>
+    </div></div>`}
+  `;
+  legaAnno();
+  const apri = ()=> formFutura(null, f);
+  if($('#btnNuovaFu')) $('#btnNuovaFu').onclick = apri;
+  if($('#btnPrimaFu')) $('#btnPrimaFu').onclick = apri;
+  if($('#btnCsvFu')) $('#btnCsvFu').onclick = ()=> esportaCsv('commesse-future-'+S.anno,
+    ['Mese','Anno','Descrizione','Importo','IVA inclusa','Imponibile','Con IVA','Note'],
+    f.voci.map(v=>[MESI_LUNGHI[v.mese-1], v.anno, v.descrizione, v.importo,
+      v.iva_inclusa?'si':'no', v.imponibile, v.lordo, v.note||'']));
+
+  m.querySelectorAll('[data-modfu]').forEach(b=> b.onclick = ()=>
+    formFutura(f.voci.find(v=>v.id==b.dataset.modfu), f));
+  m.querySelectorAll('[data-delfu]').forEach(b=> b.onclick = async ()=>{
+    if(!confirm('Eliminare questa previsione?')) return;
+    await api('/future/'+b.dataset.delfu,{method:'DELETE'});
+    toast('Previsione eliminata'); render();
+  });
+  m.querySelectorAll('[data-dupfu]').forEach(b=> b.onclick = async ()=>{
+    const v = f.voci.find(x=>x.id==b.dataset.dupfu);
+    const mese = prompt('In quale mese? (1-12)', Math.min(12, v.mese+1));
+    if(!mese) return;
+    await api('/future/'+b.dataset.dupfu+'/duplica',{method:'POST',
+      body:JSON.stringify({mese:Number(mese), anno:S.anno})});
+    toast('Previsione duplicata'); render();
+  });
+}
+
+function formFutura(v, f){
+  const e = v||{};
+  const y = new Date().getFullYear();
+  modal(v?'Modifica previsione':'Nuova previsione', `
+    <div class="field"><label>Descrizione</label>
+      <input type="text" id="fuDesc" value="${esc(e.descrizione||'')}" placeholder="Es. rinnovo sito cliente X"></div>
+    <div class="row">
+      <div class="field"><label>Importo</label>
+        <input type="number" step="50" id="fuImp" value="${e.importo||''}"></div>
+      <div class="field"><label>Mese</label>
+        <select id="fuMese">${MESI_LUNGHI.map((n,i)=>
+          `<option value="${i+1}" ${(e.mese||new Date().getMonth()+1)==i+1?'selected':''}>${n}</option>`).join('')}</select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Anno</label>
+        <select id="fuAnno">${[y-1,y,y+1,y+2].map(a=>
+          `<option value="${a}" ${(e.anno||S.anno)==a?'selected':''}>${a}</option>`).join('')}</select></div>
+      <div class="field" style="display:flex;align-items:flex-end;padding-bottom:12px">
+        <div class="check"><input type="checkbox" id="fuIva" ${e.iva_inclusa?'checked':''}>
+          <label for="fuIva">L'importo comprende l'IVA</label></div>
+      </div>
+    </div>
+    <div class="field"><label>Note</label><textarea id="fuNote">${esc(e.note||'')}</textarea></div>
+    <div class="box" id="fuAnte" style="background:var(--bg)"></div>
+  `, `<button class="btn btn-ghost" onclick="chiudiModal()">Annulla</button>
+      <button class="btn btn-accent" id="fuSalva">Salva</button>`);
+
+  const aliq = (f && f.aliquota_iva) || 22;
+  function anteprima(){
+    const imp = Number($('#fuImp').value)||0;
+    const ivaInc = $('#fuIva').checked;
+    const imponibile = ivaInc ? imp/(1+aliq/100) : imp;
+    $('#fuAnte').innerHTML = `
+      <div class="dl"><span>Imponibile</span><span class="mono strong">${eur(imponibile)}</span></div>
+      <div class="dl"><span>IVA ${aliq}%</span><span class="mono">${eur(imponibile*aliq/100)}</span></div>
+      <div class="dl total"><span>Con IVA</span><span class="mono">${eur(imponibile*(1+aliq/100))}</span></div>`;
+  }
+  $('#fuImp').oninput = anteprima;
+  $('#fuIva').onchange = anteprima;
+  anteprima();
+
+  $('#fuSalva').onclick = async ()=>{
+    const body = {
+      descrizione:$('#fuDesc').value.trim(), importo:$('#fuImp').value,
+      iva_inclusa:$('#fuIva').checked, mese:Number($('#fuMese').value),
+      anno:Number($('#fuAnno').value), note:$('#fuNote').value
+    };
+    if(!body.descrizione || !Number(body.importo)) return toast('Servono descrizione e importo', true);
+    try{
+      v ? await api('/future/'+v.id,{method:'PUT',body:JSON.stringify(body)})
+        : await api('/future',{method:'POST',body:JSON.stringify(body)});
+      chiudiModal(); toast('Previsione salvata');
+      if(body.anno !== S.anno) S.anno = body.anno;
+      render();
     }catch(err){ toast(err.message, true); }
   };
 }
