@@ -952,7 +952,7 @@ async function apriCommessa(id){
         <div class="panel"><table>
           <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th class="num">Imponibile</th><th>Incasso</th><th></th></tr></thead>
           <tbody>${d.documenti.map(x=>`
-            <tr class="${x.direzione==='passiva'?'riservato':''}"><td class="dim mono">${dt(x.data)}</td>
+            <tr class="clickable ${x.direzione==='passiva'?'riservato':''}" data-apridoc="${x.id}"><td class="dim mono">${dt(x.data)}</td>
               <td>${esc(x.numero)} ${x.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}</td>
               <td class="dim">${esc(x.controparte)}</td>
               <td class="num mono ${x.segno<0?'neg':''}">${eur0(x.imponibile*x.segno)}</td>
@@ -1004,9 +1004,16 @@ async function apriCommessa(id){
   };
   $('#btnNuovoInt').onclick = ()=> formIntervento(d.id);
   $('#btnCollega').onclick = ()=> cercaDocumento(d.id, d.titolo);
-  m.querySelectorAll('[data-scoll]').forEach(b=> b.onclick = async ()=>{
+  m.querySelectorAll('[data-scoll]').forEach(b=> b.onclick = async (ev)=>{
+    ev.stopPropagation();
     await api('/documenti/'+b.dataset.scoll,{method:'PUT',body:JSON.stringify({incarico_id:''})});
     toast('Documento scollegato'); apriCommessa(id);
+  });
+  m.querySelectorAll('[data-apridoc]').forEach(t=> t.onclick = async (ev)=>{
+    if(ev.target.closest('button')) return;
+    const doc = await api('/documenti/'+t.dataset.apridoc);
+    // dopo il salvataggio si torna alla commessa, non all'elenco
+    formDocumento(doc, ()=> apriCommessa(id));
   });
   $('#btnElimC').onclick = async ()=>{
     if(!confirm('Eliminare la commessa "'+d.titolo+'"?')) return;
@@ -1398,7 +1405,7 @@ async function vistaDocumenti(m){
 }
 
 // ---------- FORM DOCUMENTO ----------
-function formDocumento(d){
+function formDocumento(d, dopo){
   const e = d||{};
   const passiva = e.direzione==='passiva';
   modal(d?'Modifica documento':'Nuovo documento', `
@@ -1537,13 +1544,16 @@ function formDocumento(d){
       d ? await api('/documenti/'+d.id,{method:'PUT',body:JSON.stringify(body)})
         : await api('/documenti',{method:'POST',body:JSON.stringify(body)});
       chiudiModal(); toast('Documento salvato');
-      await caricaBase(); render();
+      await caricaBase();
+      dopo ? dopo() : render();
     }catch(err){ toast(err.message, true); }
   };
   if(d) $('#dElimina').onclick = async ()=>{
     if(!confirm('Eliminare questo documento?')) return;
     await api('/documenti/'+d.id,{method:'DELETE'});
-    chiudiModal(); toast('Documento eliminato'); render();
+    chiudiModal(); toast('Documento eliminato');
+    await caricaBase();
+    dopo ? dopo() : render();
   };
 }
 
