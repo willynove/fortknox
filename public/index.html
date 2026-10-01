@@ -109,6 +109,8 @@ nav{display:flex;flex-direction:column;gap:2px;flex:1}
   display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .side-foot button{background:none;border:none;color:var(--muted);padding:4px 0;font-size:12px;text-align:left}
 .side-foot button:hover{color:var(--ink)}
+.ver{font-size:11px;color:var(--line);letter-spacing:.02em;margin-bottom:2px}
+.ver b{font-weight:600;color:var(--muted)}
 
 main{flex:1;min-width:0;padding:26px 30px 60px}
 .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
@@ -363,6 +365,7 @@ td.sel input,th.sel input{width:15px;height:15px;accent-color:var(--accent-deep)
     <nav id="nav"></nav>
     <div class="side-foot">
       <div id="userEmail"></div>
+      <div id="appVer" class="ver"></div>
       <button id="btnStampa">Stampa</button>
       <button id="btnLogout">Esci</button>
     </div>
@@ -1366,7 +1369,9 @@ async function vistaDocumenti(m){
       <button class="btn btn-sm" id="bsGenerale"
         style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Segna generali</button>
       <button class="btn btn-sm" id="bsScollega"
-        style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Scollega</button>`,
+        style="background:transparent;border-color:rgba(255,255,255,.35);color:#fff">Scollega</button>
+      <button class="btn btn-sm" id="bsElimina"
+        style="background:transparent;border-color:rgba(255,255,255,.45);color:#FFB4AE">Elimina</button>`,
     lega:(scelti)=>{
       legaCommessa('bsInc');
       $('#bsApplica').onclick = async ()=>{
@@ -1397,6 +1402,26 @@ async function vistaDocumenti(m){
         try{
           await api('/documenti/massivo',{method:'POST',body:JSON.stringify({ids, incarico_id:''})});
           toast(`Scollegati ${ids.length} documenti`);
+          await caricaBase(); render();
+        }catch(e){ toast(e.message, true); }
+      };
+      $('#bsElimina').onclick = async ()=>{
+        const ids = scelti();
+        const sel = docs.filter(x=> ids.includes(Number(x.id)));
+        const imp = sel.reduce((s,x)=> s + Number(x.imponibile)*x.segno, 0);
+        const daImport = sel.filter(x=> x.origine==='import').length;
+        const righe = [
+          `Eliminare ${ids.length} fatture per ${eur(imp)} di imponibile?`,
+          '',
+          'Spariscono da ricavi, costi, saldo IVA e margini delle commesse.'
+        ];
+        if(daImport) righe.push(`${daImport} vengono dall'import: ricaricando lo zip torneranno dentro.`);
+        righe.push('', 'L\'operazione non è reversibile.');
+        if(!confirm(righe.join('\n'))) return;
+        try{
+          const r = await api('/documenti/massivo',{method:'POST',
+            body:JSON.stringify({ids, elimina:true})});
+          toast(`Eliminate ${r.eliminati} fatture per ${eur(r.imponibile)}`);
           await caricaBase(); render();
         }catch(e){ toast(e.message, true); }
       };
@@ -2948,6 +2973,8 @@ async function avvia(){
   $('#login').classList.add('hidden');
   $('#app').classList.remove('hidden');
   $('#userEmail').textContent = S.user.email;
+  const v = S.user.versione;
+  if(v) $('#appVer').innerHTML = `v${esc(v.numero)} · <b>${esc(v.nome)}</b>`;
   await caricaBase();
   renderNav();
   render();
