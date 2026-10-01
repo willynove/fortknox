@@ -16,6 +16,11 @@ const upload = multer({
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Versione dell'app: unico punto di verita', il frontend la legge da qui.
+// I nomi in codice seguono l'ordine alfabetico dei cognomi:
+// Bronson, Chan, Diesel, Eastwood, Ford, Gibson, Hamilton, Johnson, Lee...
+const VERSIONE = { numero: '1.3', nome: 'Bronson' };
+
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -172,7 +177,7 @@ app.get('/api/me', wrap(async (req, res) => {
     [req.session.userId]
   );
   if (!rows[0]) return res.status(401).json({ error: 'Non autenticato' });
-  res.json(rows[0]);
+  res.json({ ...rows[0], versione: VERSIONE });
 }));
 
 app.post('/api/password', requireAuth, wrap(async (req, res) => {
@@ -195,7 +200,7 @@ app.use('/api', (req, res, next) => {
   return requireAuth(req, res, next);
 });
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+app.get('/api/health', (req, res) => res.json({ ok: true, versione: VERSIONE }));
 
 // ============================================================
 // IMPOSTAZIONI
@@ -1000,6 +1005,22 @@ app.post('/api/documenti/massivo', wrap(async (req, res) => {
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Eliminazione definitiva: le righe spariscono da ricavi, costi,
+    // saldo IVA e margini. Si restituisce il conteggio per il riscontro.
+    if (req.body.elimina) {
+      const prima = await client.query(
+        `SELECT COUNT(*) AS n,
+                COALESCE(SUM(imponibile * segno), 0) AS imponibile
+         FROM documenti WHERE id = ANY($1)`, [ids]);
+      await client.query('DELETE FROM documenti WHERE id = ANY($1)', [ids]);
+      await client.query('COMMIT');
+      return res.json({
+        ok: true,
+        eliminati: Number(prima.rows[0].n),
+        imponibile: r2(Number(prima.rows[0].imponibile))
+      });
+    }
 
     if (tocaIncarico) {
       const inc = req.body.incarico_id === '' || req.body.incarico_id === null
