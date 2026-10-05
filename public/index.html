@@ -140,6 +140,8 @@ h2{font-size:15px;font-weight:700;margin:28px 0 12px}
 .kpi.lead .k{color:rgba(255,255,255,.65)}
 .kpi.lead .n{color:rgba(255,255,255,.55)}
 .kpi.lead .v{color:var(--accent)}
+/* il rosso standard sul fondo scuro non si legge */
+.kpi.lead .v.neg{color:#FF8F85}
 
 /* ---------- TABLE ---------- */
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
@@ -245,6 +247,7 @@ tbody tr.clickable:hover{background:var(--bg)}
   .kpi.lead .k,.kpi.lead .n{color:#555 !important}
   .kpi.lead .v{color:#000 !important}
   .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .kpi-grid.cinque{grid-template-columns:repeat(5,1fr)}
   .kpi{border:1px solid #bbb;padding:8px 10px;page-break-inside:avoid}
   .kpi .v{font-size:13pt}
   .kpi .k,.kpi .n{font-size:8pt}
@@ -921,9 +924,14 @@ async function apriCommessa(id){
       </div>
     </div>
 
-    <div class="kpi-grid" style="margin-bottom:6px">
-      <div class="kpi lead riservato"><div class="k">€/h finale</div>
-        <div class="v">${mt.orario_finale!=null?eur(mt.orario_finale):'—'}</div>
+    <div class="kpi-grid cinque" style="margin-bottom:6px">
+      <div class="kpi lead riservato"><div class="k">Margine finale</div>
+        <div class="v ${mt.margine_finale<0?'neg':''}">${eur0(mt.margine_finale)}</div>
+        <div class="n">${(mt.costi_extra_diretti + mt.costi_extra_quota)
+          ? `netto ${eur0(mt.margine_netto)} meno ${eur0(mt.costi_extra_diretti + mt.costi_extra_quota)} di costi extra`
+          : 'nessun costo extra, coincide con il netto'}</div></div>
+      <div class="kpi riservato"><div class="k">€/h finale</div>
+        <div class="v ${mt.orario_finale<0?'neg':''}">${mt.orario_finale!=null?eur(mt.orario_finale):'—'}</div>
         <div class="n">${mt.ore} ore · netto ${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</div></div>
       <div class="kpi"><div class="k">Ricavi</div><div class="v">${eur0(mt.ricavi)}</div>
         <div class="n">${mt.ore} ore lavorate</div></div>
