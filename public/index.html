@@ -214,6 +214,13 @@ tbody tr.clickable:hover{background:var(--bg)}
 .autolist div{padding:7px 11px;font-size:13px;cursor:pointer}
 .autolist div:hover{background:var(--accent-wash)}
 
+/* testo modificabile dentro una tabella: sembra testo finche' non ci si passa sopra */
+.edit-inline{min-width:140px;padding:3px 6px;margin:-3px -6px;border:1px solid transparent;
+  border-radius:var(--r-sm);cursor:text;outline:none;white-space:normal;word-break:break-word}
+.edit-inline:hover{border-color:var(--line);background:var(--surface)}
+.edit-inline:focus{border-color:var(--ink);background:var(--surface);box-shadow:0 0 0 3px var(--accent-wash)}
+.edit-inline:empty::before{content:attr(data-ph);color:var(--muted)}
+
 /* ---------- STAMPA ---------- */
 .solo-stampa{display:none}
 
@@ -953,13 +960,15 @@ async function apriCommessa(id){
         <h2>Documenti</h2>
         ${d.documenti.length ? `
         <div class="panel"><table>
-          <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th class="num">Imponibile</th><th>Incasso</th><th></th></tr></thead>
+          <thead><tr><th>Data</th><th>Numero</th><th>Controparte</th><th>Oggetto</th><th class="num">Imponibile</th><th>Incasso</th><th></th></tr></thead>
           <tbody>${d.documenti.map(x=>`
             <tr class="clickable ${x.direzione==='passiva'?'riservato':''}" data-apridoc="${x.id}"><td class="dim mono">${dt(x.data)}</td>
-              <td>${esc(x.numero)} ${x.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}</td>
+              <td style="white-space:nowrap">${esc(x.numero)} ${x.tipo_documento==='TD04'?'<span class="pill warn">NC</span>':''}</td>
               <td class="dim">${esc(x.controparte)}</td>
+              <td><div class="edit-inline" contenteditable="plaintext-only" spellcheck="false"
+                data-desc="${x.id}" data-ph="Aggiungi oggetto">${esc(x.descrizione||'')}</div></td>
               <td class="num mono ${x.segno<0?'neg':''}">${eur0(x.imponibile*x.segno)}</td>
-              <td>${x.direzione==='attiva' ? (x.data_incasso?`<span class="pill good">${dt(x.data_incasso)}</span>`:'<span class="pill warn">da incassare</span>') : '<span class="dim">costo</span>'}</td>
+              <td style="white-space:nowrap">${x.direzione==='attiva' ? (x.data_incasso?`<span class="pill good">${dt(x.data_incasso)}</span>`:'<span class="pill warn">da incassare</span>') : '<span class="dim">costo</span>'}</td>
               <td class="num"><button class="btn btn-ghost btn-sm" data-scoll="${x.id}">Scollega</button></td>
             </tr>`).join('')}
           </tbody></table></div>` : `
@@ -1012,8 +1021,27 @@ async function apriCommessa(id){
     await api('/documenti/'+b.dataset.scoll,{method:'PUT',body:JSON.stringify({incarico_id:''})});
     toast('Documento scollegato'); apriCommessa(id);
   });
+  // l'oggetto si corregge sul posto: si salva uscendo dal campo,
+  // Invio conferma, Esc annulla. Non tocca gli importi, quindi niente ricarica.
+  m.querySelectorAll('[data-desc]').forEach(c=>{
+    let orig = c.textContent.replace(/\s+/g,' ').trim();
+    c.onkeydown = (ev)=>{
+      if(ev.key==='Enter'){ ev.preventDefault(); c.blur(); }
+      if(ev.key==='Escape'){ c.textContent = orig; c.blur(); }
+    };
+    c.onblur = async ()=>{
+      const val = c.textContent.replace(/\s+/g,' ').trim();
+      c.textContent = val;
+      if(val === orig) return;
+      try{
+        await api('/documenti/'+c.dataset.desc,{method:'PUT',body:JSON.stringify({descrizione:val})});
+        orig = val;
+        toast(val ? 'Oggetto salvato' : 'Oggetto cancellato');
+      }catch(e){ c.textContent = orig; toast(e.message, true); }
+    };
+  });
   m.querySelectorAll('[data-apridoc]').forEach(t=> t.onclick = async (ev)=>{
-    if(ev.target.closest('button')) return;
+    if(ev.target.closest('button, .edit-inline')) return;
     const doc = await api('/documenti/'+t.dataset.apridoc);
     // dopo il salvataggio si torna alla commessa, non all'elenco
     formDocumento(doc, ()=> apriCommessa(id));
