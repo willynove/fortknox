@@ -212,6 +212,9 @@ tbody tr.clickable:hover{background:var(--bg)}
 .dl{display:flex;justify-content:space-between;padding:5px 0;font-size:13.5px}
 .dl.total{border-top:1px solid var(--line);margin-top:6px;padding-top:9px;font-weight:700}
 .dl span:first-child{color:var(--ink-soft)}
+.nota{font-size:12px;line-height:1.45;color:var(--muted);margin:-2px 0 6px}
+.dl.voce{padding:2px 0 2px 12px;font-size:12.5px}
+.dl.voce span{color:var(--muted)}
 .autolist{max-height:150px;overflow-y:auto;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--r-sm) var(--r-sm);background:var(--surface)}
 .autolist div{padding:7px 11px;font-size:13px;cursor:pointer}
 .autolist div:hover{background:var(--accent-wash)}
@@ -904,6 +907,7 @@ async function apriCommessa(id){
   const mt = d.metriche;
   const pct = mt.ore_previste ? Math.min(100, Math.round(mt.ore/mt.ore_previste*100)) : null;
   const sfora = mt.ore_previste && mt.ore > mt.ore_previste;
+  const peso = Number(mt.peso_ricavi).toLocaleString('it-IT',{maximumFractionDigits:2})+'%';
 
   const m = $('#main');
   m.innerHTML = `
@@ -986,28 +990,38 @@ async function apriCommessa(id){
       <div class="box riservato">
         <h3>Conto economico</h3>
         <div class="dl"><span>Ricavi</span><span class="mono">${eur(mt.ricavi)}</span></div>
+        <div class="nota">Imponibile delle fatture emesse per questa commessa.</div>
         <div class="dl"><span>Costi diretti</span><span class="mono">− ${eur(mt.costi)}</span></div>
+        <div class="nota">Fatture dei fornitori collegate a questa commessa${mt.costi_ripartiti?`, comprese le quote di costi ripartiti (${eur(mt.costi_ripartiti)})`:''}.</div>
         <div class="dl"><span>Quota costi generali</span><span class="mono">${mt.costi_generali_quota?'− '+eur(mt.costi_generali_quota):'—'}</span></div>
+        <div class="nota">Il ${peso} delle spese di struttura ${mt.anno_riferimento} non legate a una commessa. Sono deducibili, quindi scendono prima delle tasse.</div>
         <div class="dl total"><span>Margine lordo</span><span class="mono">${eur(mt.margine_lordo)}</span></div>
         <div class="dl"><span>Tasse stimate (${mt.aliquota_tasse}%)</span><span class="mono">− ${eur(mt.tasse_stimate)}</span></div>
+        <div class="nota">Il ${mt.aliquota_tasse}% del margine lordo, non dei ricavi. La ritenuta subita non si toglie qui: è un anticipo di queste stesse tasse.</div>
         <div class="dl total"><span>Margine netto</span><span class="mono">${eur(mt.margine_netto)}</span></div>
         <div class="dl"><span>Costi extra diretti</span><span class="mono">${mt.costi_extra_diretti?'− '+eur(mt.costi_extra_diretti):'—'}</span></div>
+        ${(d.costi_extra||[]).map(x=>`<div class="dl voce"><span>${esc(x.descrizione)}</span><span class="mono">${eur(x.importo)}</span></div>`).join('')}
+        <div class="nota">Spese senza fattura legate a questa commessa. Non sono deducibili: si pagano per intero, dopo le tasse.</div>
         <div class="dl"><span>Quota costi extra</span><span class="mono">${mt.costi_extra_quota?'− '+eur(mt.costi_extra_quota):'—'}</span></div>
-        <div class="dl total"><span>Margine finale</span><span class="mono">${eur(mt.margine_finale)}</span></div>
-        ${(d.costi_extra||[]).length ? `
-        <div style="margin-top:10px">
-          ${d.costi_extra.map(x=>`<div class="dl" style="padding:3px 0;font-size:12.5px">
-            <span class="dim">${esc(x.descrizione)}</span><span class="mono dim">${eur(x.importo)}</span></div>`).join('')}
-        </div>` : ''}
-        <div class="sub" style="margin-top:6px">
-          Questa commessa pesa il ${mt.peso_ricavi}% sul fatturato ${mt.anno_riferimento}:
-          è la proporzione con cui si ripartiscono costi generali e costi extra.
-          I generali sono deducibili e scendono prima delle tasse, gli extra dopo.
+        <div class="nota">Il ${peso} delle spese extra ${mt.anno_riferimento} non legate a una commessa.</div>
+        <div class="dl total"><span>Margine finale</span><span class="mono ${mt.margine_finale<0?'neg':''}">${eur(mt.margine_finale)}</span></div>
+        <div class="nota">Quello che resta davvero da questa commessa.</div>
+        <div class="sub" style="margin-top:8px">
+          Le due quote dipendono dal peso della commessa: ${peso} del fatturato ${mt.anno_riferimento}.
+          Cambiano ogni volta che si aggiunge una spesa o una fattura dell'anno.
         </div>
-        <div class="dl" style="margin-top:10px"><span>€/h fatturato</span><span class="mono">${mt.orario_fatturato!=null?eur(mt.orario_fatturato):'—'}</span></div>
-        <div class="dl"><span>€/h lordo</span><span class="mono">${mt.orario_lordo!=null?eur(mt.orario_lordo):'—'}</span></div>
-        <div class="dl"><span>€/h netto</span><span class="mono">${mt.orario_netto!=null?eur(mt.orario_netto):'—'}</span></div>
-        <div class="dl"><span>€/h finale</span><span class="mono strong">${mt.orario_finale!=null?eur(mt.orario_finale):'—'}</span></div>
+
+        <h3 style="margin-top:18px">Compenso orario${mt.ore?` · ${mt.ore} ore`:''}</h3>
+        ${mt.ore ? `
+        <div class="dl"><span>€/h fatturato</span><span class="mono">${eur(mt.orario_fatturato)}</span></div>
+        <div class="nota">Ricavi diviso ore. Il numero da confrontare con le tariffe di mercato.</div>
+        <div class="dl"><span>€/h lordo</span><span class="mono">${eur(mt.orario_lordo)}</span></div>
+        <div class="nota">Margine lordo diviso ore: tolti i costi, prima delle tasse.</div>
+        <div class="dl"><span>€/h netto</span><span class="mono">${eur(mt.orario_netto)}</span></div>
+        <div class="nota">Margine netto diviso ore: dopo le tasse.</div>
+        <div class="dl total"><span>€/h finale</span><span class="mono ${mt.orario_finale<0?'neg':''}">${eur(mt.orario_finale)}</span></div>
+        <div class="nota">Margine finale diviso ore: quanto ti è rimasto per ogni ora lavorata.</div>` : `
+        <div class="sub">Nessun intervento registrato: senza ore non si calcola il compenso orario.</div>`}
         ${d.descrizione?`<div style="margin-top:14px;font-size:13px;color:var(--ink-soft)">${esc(d.descrizione)}</div>`:''}
       </div>
     </div>
